@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-tw">
+
+    <head>
+        <meta http-equiv="content-type" content="text/html charset=UTF-8" />
+        <title>w-serv-webdata</title>
+
+        <!-- @babel/polyfill已廢棄 -->
+        <script nomodule src="https://cdn.jsdelivr.net/npm/@babel/polyfill@7.12.1/dist/polyfill.min.js"></script>
+        
+        <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
+
+        <script src="dist/w-serv-webdata-client.umd.js"></script>
+
+        <script src="https://cdn.jsdelivr.net/npm/w-consolelog/dist/w-consolelog.umd.js"></script>
+        <script>
+            let log = console.log
+            console.log = function(){
+                log.apply(null, arguments)
+                window['w-consolelog'].apply(null, arguments)
+            }
+        </script>
+        
+        <script>
+
+            //wcc
+            let WConverhpClient = window['w-converhp-client']
+            let wcc = new WConverhpClient({
+                url: 'http://localhost:9000',
+            })
+
+            //wsdc
+            let WServWebdataClient = window['w-serv-webdata-client']
+            let wsdc = WServWebdataClient({
+                instWConverClient: wcc,
+                cbGetToken: function() {
+                    return '' //Vue.prototype.$store.state.token
+                },
+                cbGetServerMethods: function(r) {
+                    console.log('cbGetServerMethods', r)
+                    //Vue.prototype.$fapi = r
+
+                    //select tabA
+                    r.tabA.select()
+                        .then(function(res) {
+                            console.log('r.tabA.select then', res)
+                        })
+                        .catch(function(err) {
+                            console.log('r.tabA.select catch', err)
+                        })
+
+                    //select tabB
+                    r.tabB.select()
+                    .then(function(res) {
+                            console.log('r.tabB.select then', res)
+                        })
+                        .catch(function(err) {
+                            console.log('r.tabB.select catch', err)
+                        })
+
+                },
+                cbRecvData: function(r) {
+                    console.log('sync data', r)
+                    //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
+                },
+            })
+
+            //error
+            wsdc.on('error', function(err) {
+                console.log('error', err)
+            })
+
+        </script>
+
+    </head>
+
+    <body>
+    </body>
+
+</html>
