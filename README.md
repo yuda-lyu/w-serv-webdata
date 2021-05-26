@@ -10,7 +10,7 @@ An operator for data control and synchronization between nodejs and browser.
 [![jsdelivr download](https://img.shields.io/jsdelivr/npm/hm/w-serv-webdata.svg)](https://www.jsdelivr.com/package/npm/w-serv-webdata)
 
 ## Documentation
-To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-serv-webdata/WSyncWebdataServer.html).
+To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-serv-webdata/WServWebdataServer.html).
 
 ## Parts
 `w-serv-webdata` includes 2 parts: 
@@ -19,7 +19,7 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-serv-webdata-server` and `w-serv-webdata-client` is mainly dependent on `lodash` and `wsemi`.
+> **Note:** `w-serv-webdata-server` and `w-serv-webdata-client` is mainly dependent on `lodash`, `w-sync-webdata` and `wsemi`.
 
 ```alias
 npm i w-serv-webdata
@@ -245,14 +245,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.1/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.2/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.1/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.2/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']
