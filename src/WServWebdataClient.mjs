@@ -62,10 +62,16 @@ function WServWebdataClient(opt = {}) {
     }
 
     //cbGetToken
-    let cbGetToken = get(opt, 'cbGetToken', null)
-    if (!isfun(cbGetToken)) {
-        cbGetToken = () => {
+    let _cbGetToken = get(opt, 'cbGetToken', null)
+    if (!isfun(_cbGetToken)) {
+        _cbGetToken = () => {
             return ''
+        }
+    }
+    let cbGetToken = () => {
+        let token = _cbGetToken()
+        if (token === undefined) {
+            token = ''
         }
     }
 
