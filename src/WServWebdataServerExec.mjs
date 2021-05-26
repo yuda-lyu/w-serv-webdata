@@ -29,7 +29,7 @@ function buildFuncs(tableNames, operORM) {
             let pathName = `${tableName}.${methodName}`
 
             //bind
-            funcs[pathName] = async function(input, userId) {
+            funcs[pathName] = async function(userId, input) { //第1參數需為userId
 
                 //呼叫ORM的泛用接口funORMProc
                 let r = await operORM(userId, tableName, methodName, input)
@@ -89,7 +89,7 @@ async function execFun({ func, input, pm }) {
 
     //func非可用函數清單, 則直接調用
     try {
-        let r = await pm2resolve(callFun)(...input, userId) //此處榜定任何函式原本需只有一個輸入(也就是單一個input), 第二參數才是由系統自動由token所查得的userId
+        let r = await pm2resolve(callFun)(userId, ...input) //第1參數現在改為userId, 後端函數接收各自處理userId
         pm.resolve(r)
     }
     catch (err) {
