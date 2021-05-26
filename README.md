@@ -55,7 +55,7 @@ async function run() {
         woItems[v] = wo
     }
 
-    async function core(cl, r) {
+    async function saveData(cl, r) {
 
         //w
         let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件
@@ -89,7 +89,7 @@ async function run() {
             value: 456,
         },
     ]
-    await core('tabA', r)
+    await saveData('tabA', r)
     r = [
         {
             id: 'id-tabB-peter',
@@ -102,7 +102,7 @@ async function run() {
             value: 123.456,
         },
     ]
-    await core('tabB', r)
+    await saveData('tabB', r)
 
     setInterval(() => {
         console.log('update tabA')
@@ -111,7 +111,7 @@ async function run() {
             name: 'peter',
             value: Math.random(),
         }
-        core('tabA', r)
+        saveData('tabA', r)
     }, 3000)
 
     let wsrv = new WConverhpServer({
@@ -245,14 +245,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.4/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.5/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.4/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.5/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']

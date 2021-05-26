@@ -25,7 +25,7 @@ async function run() {
         woItems[v] = wo
     }
 
-    async function core(cl, r) {
+    async function saveData(cl, r) {
 
         //w
         let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件
@@ -59,7 +59,7 @@ async function run() {
             value: 456,
         },
     ]
-    await core('tabA', r)
+    await saveData('tabA', r)
     r = [
         {
             id: 'id-tabB-peter',
@@ -72,7 +72,7 @@ async function run() {
             value: 123.456,
         },
     ]
-    await core('tabB', r)
+    await saveData('tabB', r)
 
     setInterval(() => {
         console.log('update tabA')
@@ -81,7 +81,7 @@ async function run() {
             name: 'peter',
             value: Math.random(),
         }
-        core('tabA', r)
+        saveData('tabA', r)
     }, 3000)
 
     let wsrv = new WConverhpServer({
