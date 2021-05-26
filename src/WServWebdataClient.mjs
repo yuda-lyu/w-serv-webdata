@@ -73,6 +73,7 @@ function WServWebdataClient(opt = {}) {
         if (token === undefined) {
             token = ''
         }
+        return token
     }
 
     //cbGetServerMethods
