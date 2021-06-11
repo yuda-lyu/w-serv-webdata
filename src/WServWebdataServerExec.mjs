@@ -137,7 +137,7 @@ function WServWebdataServerExec(opt = {}) {
     //mehtods
     let mehtods = get(opt, 'mehtods', null)
     if (!isarr(mehtods)) {
-        mehtods = ['select', 'save', 'del']
+        mehtods = ['select', 'insert', 'save', 'del']
     }
 
     //extFuncs
