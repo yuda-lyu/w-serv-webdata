@@ -14,10 +14,10 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Object} opt.instWConverServer 輸入通訊服務實體物件，可使用例如WConverhpServer等建立
  * @param {Object} opt.dbORMs 輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立
- * @param {Function} opt.operORM 輸入各資料表的操作通用接口，用以提供操作由tableNamesExec指定資料表的'select'與'save'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數
+ * @param {Function} opt.operORM 輸入各資料表的操作通用接口，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數
  * @param {Array} opt.tableNamesExec 輸入指定能被操作的表名陣列
  * @param {Array} opt.tableNamesSync 輸入指定能被同步的表名陣列
- * @param {Array} [opt.mehtodsExec=['select','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
+ * @param {Array} [opt.mehtodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
  * @param {Function} [opt.cbGetUserIDFromToken=()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設()=>''
  * @param {Object} [opt.extFuncs=null] 輸入額外擴充執行函數物件，key為函數名而值為函數，預設null
  * @param {Function} [opt.hookBefores=null] 輸入執行函數的前攔截函數，預設null
