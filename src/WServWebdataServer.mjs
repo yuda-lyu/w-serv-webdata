@@ -17,7 +17,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @param {Function} opt.operORM 輸入各資料表的操作通用接口，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數
  * @param {Array} opt.tableNamesExec 輸入指定能被操作的表名陣列
  * @param {Array} opt.tableNamesSync 輸入指定能被同步的表名陣列
- * @param {Array} [opt.mehtodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
+ * @param {Array} [opt.methodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
  * @param {Function} [opt.cbGetUserIDFromToken=()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設()=>''
  * @param {Object} [opt.extFuncs=null] 輸入額外擴充執行函數物件，key為函數名而值為函數，預設null
  * @param {Function} [opt.hookBefores=null] 輸入執行函數的前攔截函數，預設null
@@ -88,10 +88,10 @@ function WServWebdataServer(opt = {}) {
         return ev
     }
 
-    //mehtodsExec
-    let mehtodsExec = get(opt, 'mehtodsExec', null)
-    if (!isarr(mehtodsExec)) {
-        mehtodsExec = ['select', 'insert', 'save', 'del']
+    //methodsExec
+    let methodsExec = get(opt, 'methodsExec', null)
+    if (!isarr(methodsExec)) {
+        methodsExec = ['select', 'insert', 'save', 'del']
     }
 
     //tableNamesSync, 指定需同步表名, 機敏資訊表記得過濾, 各表名需隸屬於ORM, 才能監聽其change事件
@@ -119,7 +119,7 @@ function WServWebdataServer(opt = {}) {
         cbGetUserIDFromToken,
         operORM,
         tableNames: tableNamesExec,
-        mehtods: mehtodsExec,
+        methods: methodsExec,
         extFuncs,
         hookBefores,
         hookAfters,

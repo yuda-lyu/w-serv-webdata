@@ -18,12 +18,12 @@ let useFuncs = {}
 let cbGetUserIDFromToken = null
 
 
-function buildFuncs(tableNames, mehtods, operORM) {
+function buildFuncs(tableNames, methods, operORM) {
     let funcs = {}
 
     //存取[ORM]資料表函數
     each(tableNames, (tableName) => { //通過ds取得資料表清單
-        each(mehtods, (methodName) => {
+        each(methods, (methodName) => {
 
             //pathName, 各資料表之各ORM方法
             let pathName = `${tableName}.${methodName}`
@@ -134,10 +134,10 @@ function WServWebdataServerExec(opt = {}) {
         return ev
     }
 
-    //mehtods
-    let mehtods = get(opt, 'mehtods', null)
-    if (!isarr(mehtods)) {
-        mehtods = ['select', 'insert', 'save', 'del']
+    //methods
+    let methods = get(opt, 'methods', null)
+    if (!isarr(methods)) {
+        methods = ['select', 'insert', 'save', 'del']
     }
 
     //extFuncs
@@ -158,7 +158,7 @@ function WServWebdataServerExec(opt = {}) {
     tableNames = cloneDeep(tableNames)
 
     //buildFuncs
-    let funcs = buildFuncs(tableNames, mehtods, operORM)
+    let funcs = buildFuncs(tableNames, methods, operORM)
 
     //add ext. async funcs
     if (isobj(extFuncs)) {
