@@ -97,7 +97,7 @@ async function run() {
 
     let wsds = WServWebdataServer({
         instWConverServer: wsrv,
-        cbGetUserIDFromToken: (token) => {
+        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
             return 'id-for-admin'
         },
         dbORMs: woItems,
@@ -105,9 +105,9 @@ async function run() {
         tableNamesExec,
         tableNamesSync,
         extFuncs: {
-        // getUserFromID,
-        // downloadFileFromID,
-        // saveTableAndData,
+            // getUserFromID,
+            // downloadFileFromID,
+            // saveTableAndData,
         },
         hookBefores: null,
         hookAfters: null,
@@ -127,9 +127,10 @@ run()
 //     { n: 1, nModified: 1, ok: 1 }
 // ]
 // save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]
-// Server running at: http://DESKTOP-5UNLNF8:9000
+// Server running at: http://localhost:9000
 // update tabA
 // save then tabA [ { n: 1, nModified: 1, ok: 1 } ]
+// repeat...
 
 
 //node --experimental-modules --es-module-specifier-resolution=node srv.mjs

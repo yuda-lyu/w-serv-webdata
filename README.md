@@ -127,7 +127,7 @@ async function run() {
 
     let wsds = WServWebdataServer({
         instWConverServer: wsrv,
-        cbGetUserIDFromToken: (token) => {
+        cbGetUserIDFromToken: async (token) => {
             return 'id-for-admin'
         },
         dbORMs: woItems,
@@ -157,9 +157,10 @@ run()
 //     { n: 1, nModified: 1, ok: 1 }
 // ]
 // save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]
-// Server running at: http://DESKTOP-5UNLNF8:9000
+// Server running at: http://localhost:9000
 // update tabA
 // save then tabA [ { n: 1, nModified: 1, ok: 1 } ]
+// repeat...
 
 ```
 
@@ -245,14 +246,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.12/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.13/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.12/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.13/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']

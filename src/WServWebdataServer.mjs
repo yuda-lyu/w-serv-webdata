@@ -18,7 +18,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @param {Array} opt.tableNamesExec 輸入指定能被操作的表名陣列
  * @param {Array} opt.tableNamesSync 輸入指定能被同步的表名陣列
  * @param {Array} [opt.methodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
- * @param {Function} [opt.cbGetUserIDFromToken=()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設()=>''
+ * @param {Function} [opt.cbGetUserIDFromToken=async ()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設async ()=>''
  * @param {Object} [opt.extFuncs=null] 輸入額外擴充執行函數物件，key為函數名而值為函數，預設null
  * @param {Function} [opt.hookBefores=null] 輸入執行函數的前攔截函數，預設null
  * @param {Function} [opt.hookAfters=null] 輸入執行函數的後攔截函數，預設null
@@ -35,7 +35,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  *
  * let wsds = WServWebdataServer({
  *     instWConverServer: wsrv,
- *     cbGetUserIDFromToken: () => {
+ *     cbGetUserIDFromToken: async () => {
  *         return 'id-for-admin'
  *     },
  *     dbORMs: woItems,

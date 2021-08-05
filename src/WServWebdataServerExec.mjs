@@ -6,8 +6,9 @@ import cloneDeep from 'lodash/cloneDeep'
 import isobj from 'wsemi/src/isobj.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isearr from 'wsemi/src/isearr.mjs'
-import isfun from 'wsemi/src/isfun.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
+import isfun from 'wsemi/src/isfun.mjs'
+import ispm from 'wsemi/src/ispm.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import cstr from 'wsemi/src/cstr.mjs'
 import evem from 'wsemi/src/evem.mjs'
@@ -63,7 +64,14 @@ async function execFun({ func, input, pm }) {
     input = input.__sysInputArgs__
 
     //cbGetUserIDFromToken
-    let userId = cbGetUserIDFromToken(token)
+    let userId = ''
+    let funRes = cbGetUserIDFromToken(token)
+    if (ispm(funRes)) {
+        userId = await funRes
+    }
+    else {
+        userId = funRes
+    }
     if (!isestr(userId)) {
         userId = ''
     }
@@ -115,7 +123,7 @@ function WServWebdataServerExec(opt = {}) {
     //cbGetUserIDFromToken, 由外部提供呼叫函數, 提供token回傳使用userID
     cbGetUserIDFromToken = get(opt, 'cbGetUserIDFromToken', null)
     if (!isfun(cbGetUserIDFromToken)) {
-        cbGetUserIDFromToken = () => {
+        cbGetUserIDFromToken = async () => {
             return ''
         }
     }
