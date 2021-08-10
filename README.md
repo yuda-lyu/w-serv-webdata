@@ -25,7 +25,7 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 npm i w-serv-webdata
 ```
 
-#### Example for server:
+#### Example for w-serv-webdata-server:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/srv.mjs)]
 ```alias
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
@@ -164,7 +164,7 @@ run()
 
 ```
 
-#### Example for client:
+#### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/scla.mjs)]
 ```alias
 import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs' //編譯後axios與form-data都不適合執行於nodejs, 故需引用原程式碼執行
@@ -188,7 +188,9 @@ let wsdc = WServWebdataClient({
         //Vue.prototype.$fapi = r
 
         //select tabA
-        r.tabA.select()
+        r.tabA.select(({ prog, p, m }) => {
+            console.log('select tabA', prog, p, m)
+        })
             .then((res) => {
                 console.log('r.tabA.select then', res)
             })
@@ -197,7 +199,9 @@ let wsdc = WServWebdataClient({
             })
 
         //select tabB
-        r.tabB.select()
+        r.tabB.select(({ prog, p, m }) => {
+            console.log('select tabB', prog, p, m)
+        })
             .then((res) => {
                 console.log('r.tabB.select then', res)
             })
@@ -246,14 +250,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.13/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.14/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.13/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.14/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']
@@ -273,7 +277,9 @@ let wsdc = WServWebdataClient({
         //Vue.prototype.$fapi = r
 
         //select tabA
-        r.tabA.select()
+        r.tabA.select({ prog, p, m }) => {
+            console.log('select tabA', prog, p, m)
+        })
             .then(function(res) {
                 console.log('r.tabA.select then', res)
             })
@@ -282,7 +288,9 @@ let wsdc = WServWebdataClient({
             })
 
         //select tabB
-        r.tabB.select()
+        r.tabB.select({ prog, p, m }) => {
+            console.log('select tabB', prog, p, m)
+        })
         .then(function(res) {
                 console.log('r.tabB.select then', res)
             })

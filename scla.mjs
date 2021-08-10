@@ -12,14 +12,16 @@ let wcc = WConverhpClient({
 let wsdc = WServWebdataClient({
     instWConverClient: wcc,
     cbGetToken: () => {
-        return '' //Vue.prototype.$store.state.token
+        return '' //Vue.prototype.$store.state.userToken
     },
     cbGetServerMethods: (r) => {
         console.log('cbGetServerMethods', r)
         //Vue.prototype.$fapi = r
 
         //select tabA
-        r.tabA.select()
+        r.tabA.select(({ prog, p, m }) => {
+            console.log('select tabA', prog, p, m)
+        })
             .then((res) => {
                 console.log('r.tabA.select then', res)
             })
@@ -28,7 +30,9 @@ let wsdc = WServWebdataClient({
             })
 
         //select tabB
-        r.tabB.select()
+        r.tabB.select(({ prog, p, m }) => {
+            console.log('select tabB', prog, p, m)
+        })
             .then((res) => {
                 console.log('r.tabB.select then', res)
             })

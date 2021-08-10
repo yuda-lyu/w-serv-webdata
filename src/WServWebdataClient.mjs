@@ -1,6 +1,8 @@
 import get from 'lodash/get'
 import set from 'lodash/set'
 import each from 'lodash/each'
+import last from 'lodash/last'
+import dropRight from 'lodash/dropRight'
 import genPm from 'wsemi/src/genPm.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
@@ -30,11 +32,34 @@ import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
  * let wsdc = WServWebdataClient({
  *     instWConverClient: wcc,
  *     cbGetToken: () => {
- *         return '' //Vue.prototype.$store.state.token
+ *         return '' //Vue.prototype.$store.state.userToken
  *     },
  *     cbGetServerMethods: (r) => {
- *         console.log('$fapi', r)
+ *         console.log('cbGetServerMethods', r)
  *         //Vue.prototype.$fapi = r
+ *
+ *         //select tabA
+ *         r.tabA.select(({ prog, p, m }) => {
+ *             console.log('select tabA', prog, p, m)
+ *         })
+ *             .then((res) => {
+ *                 console.log('r.tabA.select then', res)
+ *             })
+ *             .catch((err) => {
+ *                 console.log('r.tabA.select catch', err)
+ *             })
+ *
+ *         //select tabB
+ *         r.tabB.select(({ prog, p, m }) => {
+ *             console.log('select tabB', prog, p, m)
+ *         })
+ *             .then((res) => {
+ *                 console.log('r.tabB.select then', res)
+ *             })
+ *             .catch((err) => {
+ *                 console.log('r.tabB.select catch', err)
+ *             })
+ *
  *     },
  *     cbRecvData: (r) => {
  *         console.log('sync data', r)
@@ -46,6 +71,28 @@ import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
  * wsdc.on('error', (err) => {
  *     console.log('error', err)
  * })
+ * // cbGetServerMethods {
+ * //     tabA: { select: [AsyncFunction: f], save: [AsyncFunction: f] },
+ * //     tabB: { select: [AsyncFunction: f], save: [AsyncFunction: f] }
+ * // }
+ * // r.tabA.select then [
+ * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
+ * //     { id: 'id-tabA-peter', name: 'peter', value: 123 },
+ * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },
+ * //     { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
+ * // ]
+ * // r.tabB.select then [
+ * //     { id: 'id-tabB-peter', name: 'peter', value: 123 },
+ * //     { id: 'id-tabB-rosemary', name: 'rosemary', value: 123.456 }
+ * // ]
+ * // sync data {
+ * //     tableName: 'tabA',
+ * //     timeTag: 'wpA9pN',
+ * //     data: [
+ * //         { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },    { id: 'id-tabA-peter', name: 'peter', value: 0.8214024045926114 },    { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },
+ * //         { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
+ * //     ]
+ * // }
  *
  */
 function WServWebdataClient(opt = {}) {
@@ -100,11 +147,25 @@ function WServWebdataClient(opt = {}) {
             //pm
             let pm = genPm()
 
+            //args
+            let args = [...arguments]
+
+            //fprog
+            let fprog = () => {}
+            let argLast = last(args) //若最後一個參數是函數, 因前端對後端無法使用回調函數, 故一定為監聽上下傳的進度函數
+            if (isfun(argLast)) {
+                fprog = argLast
+                args = dropRight(args) //剔除最後的監聽上下傳的進度函數
+            }
+
             //input
-            let input = { __sysInputArgs__: [...arguments], __sysToken__: cbGetToken() }
+            let input = { __sysInputArgs__: args, __sysToken__: cbGetToken() }
 
             //execute
-            await instWConverClient.execute(func, input)
+            await instWConverClient.execute(func, input,
+                function (prog, p, m) {
+                    fprog({ prog, p, m })
+                })
                 .then((r) => {
                     // console.log('instWConverClient.execute then', r)
                     let res = r.msg

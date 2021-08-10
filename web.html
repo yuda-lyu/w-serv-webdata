@@ -41,7 +41,9 @@
                     //Vue.prototype.$fapi = r
 
                     //select tabA
-                    r.tabA.select()
+                    r.tabA.select(({ prog, p, m }) => {
+                        console.log('select tabA', prog, p, m)
+                    })
                         .then(function(res) {
                             console.log('r.tabA.select then', res)
                         })
@@ -50,7 +52,9 @@
                         })
 
                     //select tabB
-                    r.tabB.select()
+                    r.tabB.select(({ prog, p, m }) => {
+                        console.log('select tabB', prog, p, m)
+                    })
                     .then(function(res) {
                             console.log('r.tabB.select then', res)
                         })
