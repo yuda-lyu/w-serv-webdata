@@ -42,7 +42,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  *     operORM: procCommon, //funORMProc的輸入為: userId, tableName, methodName, input
  *     tableNamesExec,
  *     tableNamesSync,
- *     extFuncs: {
+ *     extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
  *         // getUserFromID,
  *         // downloadFileFromID,
  *         // saveTableAndData,

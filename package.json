@@ -6,10 +6,10 @@
   "dependencies": {
     "lodash": "^4.17.21",
     "w-sync-webdata": "^1.0.8",
-    "wsemi": "^1.6.3"
+    "wsemi": "^1.6.6"
   },
   "devDependencies": {
-    "w-converhp": "^1.0.27",
+    "w-converhp": "^1.0.29",
     "w-orm-mongodb": "^1.1.22",
     "w-package-tools": "^1.0.56"
   },

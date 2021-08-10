@@ -8,17 +8,20 @@
         <!-- @babel/polyfill已廢棄 -->
         <script nomodule src="https://cdn.jsdelivr.net/npm/@babel/polyfill@7.12.1/dist/polyfill.min.js"></script>
         
+        <script src="https://cdn.jsdelivr.net/npm/wsemi/dist/wsemi.umd.js"></script>
+        
         <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
 
         <script src="dist/w-serv-webdata-client.umd.js"></script>
 
         <script src="https://cdn.jsdelivr.net/npm/w-consolelog/dist/w-consolelog.umd.js"></script>
         <script>
-            let log = console.log
-            console.log = function(){
-                log.apply(null, arguments)
-                window['w-consolelog'].apply(null, arguments)
-            }
+            // let log = console.log
+            //可能上傳大檔案w-consolelog會處理太久
+            // console.log = function(){
+            //     log.apply(null, arguments)
+            //     window['w-consolelog'].apply(null, arguments)
+            // }
         </script>
         
         <script>
@@ -31,6 +34,7 @@
 
             //wsdc
             let WServWebdataClient = window['w-serv-webdata-client']
+            let $fapi = null
             let wsdc = WServWebdataClient({
                 instWConverClient: wcc,
                 cbGetToken: function() {
@@ -38,7 +42,10 @@
                 },
                 cbGetServerMethods: function(r) {
                     console.log('cbGetServerMethods', r)
+
+                    //save
                     //Vue.prototype.$fapi = r
+                    $fapi = r
 
                     //select tabA
                     r.tabA.select(({ prog, p, m }) => {
@@ -76,9 +83,55 @@
 
         </script>
 
+        <script>
+            
+            function uploadFile() {
+
+                wsemi.domShowInputAndGetFiles()
+                    .then(function(msg){
+                        console.log('domShowInputAndGetFiles msg',msg)
+
+                        //check
+                        if(Object.keys(msg.errs).length > 0){
+                            console.log('errs',msg.errs)
+                            return
+                        }
+
+                        //file
+                        let file = msg.files[0]
+                        console.log('file',file)
+
+                        //blob2ab
+                        wsemi.blob2ab(file)
+                            .then(function(ab){
+
+                                //uploadFile
+                                $fapi.uploadFile({
+                                    name: file.name,
+                                    // u8a: new Uint8Array([66, 97, 115]),
+                                    u8a: ab, //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
+                                }, ({ prog, p, m }) => {
+                                    console.log('uploadFile', prog, p, m)
+                                })
+
+                            })
+
+                    })
+
+                }
+
+        </script>
+
     </head>
 
     <body>
+        
+        <div>
+    
+            <button onclick="uploadFile()">upload file</button>
+        
+        </div>
+        
     </body>
 
 </html>

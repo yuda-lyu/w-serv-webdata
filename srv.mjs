@@ -1,3 +1,5 @@
+import fs from 'fs'
+import _ from 'lodash'
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs'
 import WServWebdataServer from './src/WServWebdataServer.mjs'
@@ -95,6 +97,13 @@ async function run() {
         return r
     }
 
+    let uploadFile = async (userId, { name, u8a }) => {
+        console.log('uploadFile', userId, name, _.size(u8a))
+        fs.writeFileSync(name, Buffer.from(u8a))
+        console.log('uploadFile writeFileSync finish')
+        return 'finish'
+    }
+
     let wsds = WServWebdataServer({
         instWConverServer: wsrv,
         cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
@@ -104,7 +113,8 @@ async function run() {
         operORM: procCommon, //funORMProc的輸入為: userId, tableName, methodName, input
         tableNamesExec,
         tableNamesSync,
-        extFuncs: {
+        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
+            uploadFile,
             // getUserFromID,
             // downloadFileFromID,
             // saveTableAndData,

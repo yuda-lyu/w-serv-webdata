@@ -209,6 +209,15 @@ let wsdc = WServWebdataClient({
                 console.log('r.tabB.select catch', err)
             })
 
+        //uploadFile
+        r.uploadFile({
+            name: 'zdata.b1',
+            u8a: new Uint8Array([66, 97, 115]),
+            // u8a: new Uint8Array(fs.readFileSync('../_data/500mb.7z')), //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
+        }, ({ prog, p, m }) => {
+            console.log('uploadFile', prog, p, m)
+        })
+
     },
     cbRecvData: (r) => {
         console.log('sync data', r)
@@ -277,26 +286,35 @@ let wsdc = WServWebdataClient({
         //Vue.prototype.$fapi = r
 
         //select tabA
-        r.tabA.select({ prog, p, m }) => {
+        r.tabA.select(({ prog, p, m }) => {
             console.log('select tabA', prog, p, m)
         })
-            .then(function(res) {
+            .then((res) => {
                 console.log('r.tabA.select then', res)
             })
-            .catch(function(err) {
+            .catch((err) => {
                 console.log('r.tabA.select catch', err)
             })
 
         //select tabB
-        r.tabB.select({ prog, p, m }) => {
+        r.tabB.select(({ prog, p, m }) => {
             console.log('select tabB', prog, p, m)
         })
-        .then(function(res) {
+            .then((res) => {
                 console.log('r.tabB.select then', res)
             })
-            .catch(function(err) {
+            .catch((err) => {
                 console.log('r.tabB.select catch', err)
             })
+
+        //uploadFile
+        r.uploadFile({
+            name: 'zdata.b1',
+            u8a: new Uint8Array([66, 97, 115]),
+            // u8a: new Uint8Array(fs.readFileSync('../_data/500mb.7z')), //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
+        }, ({ prog, p, m }) => {
+            console.log('uploadFile', prog, p, m)
+        })
 
     },
     cbRecvData: function(r) {

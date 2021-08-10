@@ -1,3 +1,4 @@
+import fs from 'fs'
 import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs' //編譯後axios與form-data都不適合執行於nodejs, 故需引用原程式碼執行
 import WServWebdataClient from './src/WServWebdataClient.mjs'
 
@@ -39,6 +40,15 @@ let wsdc = WServWebdataClient({
             .catch((err) => {
                 console.log('r.tabB.select catch', err)
             })
+
+        //uploadFile
+        r.uploadFile({
+            name: 'zdata.b1',
+            u8a: new Uint8Array([66, 97, 115]),
+            // u8a: new Uint8Array(fs.readFileSync('../_data/500mb.7z')), //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
+        }, ({ prog, p, m }) => {
+            console.log('uploadFile', prog, p, m)
+        })
 
     },
     cbRecvData: (r) => {
