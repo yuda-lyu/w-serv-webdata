@@ -1,6 +1,6 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "An operator for data control and synchronization between nodejs and browser.",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
