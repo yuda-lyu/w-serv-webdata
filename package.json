@@ -1,17 +1,17 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "An operator for data control and synchronization between nodejs and browser.",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
     "lodash": "^4.17.21",
-    "w-sync-webdata": "^1.0.9",
-    "wsemi": "^1.6.12"
+    "w-sync-webdata": "^1.0.10",
+    "wsemi": "^1.6.19"
   },
   "devDependencies": {
-    "w-converhp": "^1.0.30",
-    "w-orm-mongodb": "^1.1.22",
-    "w-package-tools": "^1.0.56"
+    "w-converhp": "^1.0.31",
+    "w-orm-mongodb": "^1.1.23",
+    "w-package-tools": "^1.0.59"
   },
   "scripts": {
     "test": "mocha --parallel --timeout 60000 --experimental-modules --es-module-specifier-resolution=node",
