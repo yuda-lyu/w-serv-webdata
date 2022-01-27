@@ -169,7 +169,9 @@ function WServWebdataClient(opt = {}) {
             if (ispm(token)) {
                 await token
             }
-            if (token === undefined) { //若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
+
+            //check, 若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
+            if (token === undefined) {
                 token = ''
             }
 
