@@ -46,6 +46,7 @@
 import isarr from 'wsemi/src/isarr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
+import isbol from 'wsemi/src/isbol.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import WServWebdataServerSync from './WServWebdataServerSync.mjs'
 import WServWebdataServerExec from './WServWebdataServerExec.mjs'
@@ -57,10 +58,11 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @class
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Object} opt.instWConverServer 輸入通訊服務實體物件，可使用例如WConverhpServer等建立
- * @param {Object} opt.dbORMs 輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立
- * @param {Function} opt.operORM 輸入各資料表的操作通用接口，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數
- * @param {Array} opt.tableNamesExec 輸入指定能被操作的表名陣列
- * @param {Array} opt.tableNamesSync 輸入指定能被同步的表名陣列
+ * @param {Boolean} [opt.useDbORM=true] 輸入是否使用資料庫ORM技術，給予false代表不使用直接存取資料庫函數與自動同步資料庫至前端功能，預設true
+ * @param {Object} [opt.dbORMs={}] 輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立，預設{}
+ * @param {Function} [opt.operORM={}] 輸入各資料表的操作通用接口物件，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數，預設{}
+ * @param {Array} [opt.tableNamesExec=[]] 輸入指定能被操作的表名陣列，預設[]
+ * @param {Array} [opt.tableNamesSync=[]] 輸入指定能被同步的表名陣列，預設[]
  * @param {Array} [opt.methodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
  * @param {Function} [opt.cbGetUserIDFromToken=async ()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設async ()=>''
  * @param {Object} [opt.extFuncs=null] 輸入額外擴充執行函數物件，key為函數名而值為函數，預設null
@@ -83,7 +85,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  *         return 'id-for-admin'
  *     },
  *     dbORMs: woItems,
- *     operORM: procCommon, //funORMProc的輸入為: userId, tableName, methodName, input
+ *     operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
  *     tableNamesExec,
  *     tableNamesSync,
  *     extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
@@ -111,39 +113,45 @@ function WServWebdataServer(opt = {}) {
         return ev
     }
 
+    //useDbORM
+    let useDbORM = get(opt, 'useDbORM', null)
+    if (!isbol(useDbORM)) {
+        useDbORM = true
+    }
+
     //dbORMs, 輸入外部ORM實體
     let dbORMs = get(opt, 'dbORMs', null)
-    if (!isobj(dbORMs)) {
-        ev.emit('error', 'invalid opt.dbORMs')
-        return ev
-    }
+    // if (!isobj(dbORMs)) {
+    //     ev.emit('error', 'invalid opt.dbORMs')
+    //     return ev
+    // }
 
-    //operORM, ORM的泛用接口funORMProc
+    //operORM, ORM的泛用接口procCommon
     let operORM = get(opt, 'operORM', null)
-    if (!isfun(operORM)) {
-        ev.emit('error', 'invalid opt.operORM')
-        return ev
-    }
+    // if (!isfun(operORM)) {
+    //     ev.emit('error', 'invalid opt.operORM')
+    //     return ev
+    // }
 
-    //tableNamesExec, 指定能被呼叫的表名, 各表名需隸屬於ORM, 才能被ORM的泛用接口funORMProc處理
+    //tableNamesExec, 指定能被呼叫的表名, 各表名需隸屬於ORM, 才能被ORM的泛用接口procCommon處理
     let tableNamesExec = get(opt, 'tableNamesExec', null)
-    if (!isarr(tableNamesExec)) {
-        ev.emit('error', 'invalid opt.tableNamesExec')
-        return ev
-    }
+    // if (!isarr(tableNamesExec)) {
+    //     ev.emit('error', 'invalid opt.tableNamesExec')
+    //     return ev
+    // }
 
     //methodsExec
     let methodsExec = get(opt, 'methodsExec', null)
-    if (!isarr(methodsExec)) {
-        methodsExec = ['select', 'insert', 'save', 'del']
-    }
+    // if (!isarr(methodsExec)) {
+    //     methodsExec = ['select', 'insert', 'save', 'del']
+    // }
 
     //tableNamesSync, 指定需同步表名, 機敏資訊表記得過濾, 各表名需隸屬於ORM, 才能監聽其change事件
     let tableNamesSync = get(opt, 'tableNamesSync', null)
-    if (!isarr(tableNamesSync)) {
-        ev.emit('error', 'invalid opt.tableNamesSync')
-        return ev
-    }
+    // if (!isarr(tableNamesSync)) {
+    //     ev.emit('error', 'invalid opt.tableNamesSync')
+    //     return ev
+    // }
 
     //cbGetUserIDFromToken, 由外部提供呼叫函數, 將提供各函數的輸入用以取得使用userID
     let cbGetUserIDFromToken = get(opt, 'cbGetUserIDFromToken', null)
@@ -161,6 +169,7 @@ function WServWebdataServer(opt = {}) {
     let wsde = WServWebdataServerExec({
         instWConverServer,
         cbGetUserIDFromToken,
+        useDbORM,
         operORM,
         tableNames: tableNamesExec,
         methods: methodsExec,
@@ -173,14 +182,25 @@ function WServWebdataServer(opt = {}) {
     })
 
     //WServWebdataServerSync
-    let wsds = WServWebdataServerSync({
-        instWConverServer,
-        dbORMs,
-        tableNames: tableNamesSync,
-    })
-    wsds.on('error', (err) => {
-        ev.emit('error', err)
-    })
+    if (useDbORM) {
+
+        //check
+        if (!isobj(dbORMs)) {
+            ev.emit('error', 'invalid opt.dbORMs when useDbORM=true')
+            return ev
+        }
+
+        //wsds
+        let wsds = WServWebdataServerSync({
+            instWConverServer,
+            dbORMs,
+            tableNames: tableNamesSync,
+        })
+        wsds.on('error', (err) => {
+            ev.emit('error', err)
+        })
+
+    }
 
     return ev
 }
@@ -201,7 +221,7 @@ export default WServWebdataServer
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.7</a> on Thu Dec 16 2021 14:24:24 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.7</a> on Thu Jan 27 2022 15:37:05 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

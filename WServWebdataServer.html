@@ -71,7 +71,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line58">line 58</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line60">line 60</a>
     </li></ul></dd>
     
 
@@ -124,7 +124,7 @@
 
     <h5>Example</h5>
     
-    <pre class="prettyprint"><code>import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'import WServWebdataServer from 'w-serv-webdata/src/WServWebdataServer.mjs'let wsrv = new WConverhpServer({...})let procCommon = () => {...}let tableNamesExec = [...]let tableNamesSync = [...]let wsds = WServWebdataServer({    instWConverServer: wsrv,    cbGetUserIDFromToken: async () => {        return 'id-for-admin'    },    dbORMs: woItems,    operORM: procCommon, //funORMProc的輸入為: userId, tableName, methodName, input    tableNamesExec,    tableNamesSync,    extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數        // getUserFromID,        // downloadFileFromID,        // saveTableAndData,    },    hookBefores: null,    hookAfters: null,})wsds.on('error', (err) => {    console.log('error', err)})</code></pre>
+    <pre class="prettyprint"><code>import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'import WServWebdataServer from 'w-serv-webdata/src/WServWebdataServer.mjs'let wsrv = new WConverhpServer({...})let procCommon = () => {...}let tableNamesExec = [...]let tableNamesSync = [...]let wsds = WServWebdataServer({    instWConverServer: wsrv,    cbGetUserIDFromToken: async () => {        return 'id-for-admin'    },    dbORMs: woItems,    operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input    tableNamesExec,    tableNamesSync,    extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數        // getUserFromID,        // downloadFileFromID,        // saveTableAndData,    },    hookBefores: null,    hookAfters: null,})wsds.on('error', (err) => {    console.log('error', err)})</code></pre>
 
 
 
@@ -255,6 +255,45 @@
 
         <tr>
             
+                <td class="name"><code>useDbORM</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>true</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否使用資料庫ORM技術，給予false代表不使用直接存取資料庫函數與自動同步資料庫至前端功能，預設true</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
                 <td class="name"><code>dbORMs</code></td>
             
 
@@ -270,6 +309,8 @@
             
                 <td class="attributes">
                 
+                    &lt;optional><br>
+                
 
                 
 
@@ -280,10 +321,12 @@
             
                 <td class="default">
                 
+                    <code>{}</code>
+                
                 </td>
             
 
-            <td class="description last"><p>輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立</p></td>
+            <td class="description last"><p>輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立，預設{}</p></td>
         </tr>
 
     
@@ -305,6 +348,8 @@
             
                 <td class="attributes">
                 
+                    &lt;optional><br>
+                
 
                 
 
@@ -315,10 +360,12 @@
             
                 <td class="default">
                 
+                    <code>{}</code>
+                
                 </td>
             
 
-            <td class="description last"><p>輸入各資料表的操作通用接口，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數</p></td>
+            <td class="description last"><p>輸入各資料表的操作通用接口物件，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數，預設{}</p></td>
         </tr>
 
     
@@ -340,6 +387,8 @@
             
                 <td class="attributes">
                 
+                    &lt;optional><br>
+                
 
                 
 
@@ -350,10 +399,12 @@
             
                 <td class="default">
                 
+                    <code>[]</code>
+                
                 </td>
             
 
-            <td class="description last"><p>輸入指定能被操作的表名陣列</p></td>
+            <td class="description last"><p>輸入指定能被操作的表名陣列，預設[]</p></td>
         </tr>
 
     
@@ -375,6 +426,8 @@
             
                 <td class="attributes">
                 
+                    &lt;optional><br>
+                
 
                 
 
@@ -385,10 +438,12 @@
             
                 <td class="default">
                 
+                    <code>[]</code>
+                
                 </td>
             
 
-            <td class="description last"><p>輸入指定能被同步的表名陣列</p></td>
+            <td class="description last"><p>輸入指定能被同步的表名陣列，預設[]</p></td>
         </tr>
 
     
@@ -674,7 +729,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.7</a> on Thu Dec 16 2021 14:24:24 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.7</a> on Thu Jan 27 2022 15:37:05 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
