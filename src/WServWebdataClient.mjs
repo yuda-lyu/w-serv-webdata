@@ -167,7 +167,7 @@ function WServWebdataClient(opt = {}) {
             //token
             let token = cbGetToken()
             if (ispm(token)) {
-                await token
+                token = await token
             }
 
             //check, 若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
