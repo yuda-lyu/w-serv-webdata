@@ -110,7 +110,7 @@ async function run() {
             return 'id-for-admin'
         },
         dbORMs: woItems,
-        operORM: procCommon, //funORMProc的輸入為: userId, tableName, methodName, input
+        operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
         tableNamesExec,
         tableNamesSync,
         extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
@@ -118,6 +118,7 @@ async function run() {
             // getUserFromID,
             // downloadFileFromID,
             // saveTableAndData,
+            //...
         },
         hookBefores: null,
         hookAfters: null,
@@ -143,4 +144,4 @@ run()
 // repeat...
 
 
-//node --experimental-modules --es-module-specifier-resolution=node srv.mjs
+//node --experimental-modules --es-module-specifier-resolution=node srva.mjs

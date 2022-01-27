@@ -25,7 +25,7 @@ npm i w-serv-webdata
 ```
 
 #### Example for w-serv-webdata-server:
-> **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/srv.mjs)]
+> **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/srva.mjs)]
 ```alias
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs'
@@ -130,7 +130,7 @@ async function run() {
             return 'id-for-admin'
         },
         dbORMs: woItems,
-        operORM: procCommon, //funORMProc的輸入為: userId, tableName, methodName, input
+        operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
         tableNamesExec,
         tableNamesSync,
         extFuncs: {
@@ -230,7 +230,8 @@ wsdc.on('error', (err) => {
 })
 // cbGetServerMethods {
 //     tabA: { select: [AsyncFunction: f], save: [AsyncFunction: f] },     
-//     tabB: { select: [AsyncFunction: f], save: [AsyncFunction: f] }      
+//     tabB: { select: [AsyncFunction: f], save: [AsyncFunction: f] },
+//     uploadFile: [AsyncFunction: f]   
 // }
 // r.tabA.select then [
 //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },  
@@ -258,14 +259,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.18/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.19/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.18/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.19/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']

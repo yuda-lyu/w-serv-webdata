@@ -63,7 +63,8 @@ wsdc.on('error', (err) => {
 })
 // cbGetServerMethods {
 //     tabA: { select: [AsyncFunction: f], save: [AsyncFunction: f] },
-//     tabB: { select: [AsyncFunction: f], save: [AsyncFunction: f] }
+//     tabB: { select: [AsyncFunction: f], save: [AsyncFunction: f] },
+//     uploadFile: [AsyncFunction: f]
 // }
 // r.tabA.select then [
 //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },

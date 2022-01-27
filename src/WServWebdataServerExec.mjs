@@ -8,6 +8,7 @@ import isarr from 'wsemi/src/isarr.mjs'
 import isearr from 'wsemi/src/isearr.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
+import isbol from 'wsemi/src/isbol.mjs'
 import ispm from 'wsemi/src/ispm.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import cstr from 'wsemi/src/cstr.mjs'
@@ -32,7 +33,7 @@ function buildFuncs(tableNames, methods, operORM) {
             //bind
             funcs[pathName] = async function(userId, input) { //第1參數需為userId
 
-                //呼叫ORM的泛用接口funORMProc
+                //呼叫ORM的泛用接口procCommon
                 let r = await operORM(userId, tableName, methodName, input)
 
                 return r
@@ -128,24 +129,39 @@ function WServWebdataServerExec(opt = {}) {
         }
     }
 
-    //operORM, ORM的泛用接口funORMProc
-    let operORM = get(opt, 'operORM', null)
-    if (!isfun(operORM)) {
-        ev.emit('error', 'invalid opt.operORM')
-        return ev
+    //useDbORM
+    let useDbORM = get(opt, 'useDbORM', null)
+    if (!isbol(useDbORM)) {
+        useDbORM = true
     }
 
-    //tableNames, 指定能被呼叫的表名, 各表名需隸屬於ORM, 才能被ORM的泛用接口funORMProc處理
-    let tableNames = get(opt, 'tableNames', null)
-    if (!isarr(tableNames)) {
-        ev.emit('error', 'invalid opt.tableNames')
-        return ev
+    //operORM, ORM的泛用接口procCommon
+    let operORM = null
+    if (useDbORM) {
+        operORM = get(opt, 'operORM', null)
+        if (!isfun(operORM)) {
+            ev.emit('error', 'invalid opt.operORM when useDbORM=true')
+            return ev
+        }
+    }
+
+    //tableNames, 指定能被呼叫的表名, 各表名需隸屬於ORM, 才能被ORM的泛用接口procCommon處理
+    let tableNames = []
+    if (useDbORM) {
+        tableNames = get(opt, 'tableNames', null)
+        if (!isarr(tableNames)) {
+            ev.emit('error', 'invalid opt.tableNames when useDbORM=true')
+            return ev
+        }
     }
 
     //methods
-    let methods = get(opt, 'methods', null)
-    if (!isarr(methods)) {
-        methods = ['select', 'insert', 'save', 'del']
+    let methods = []
+    if (useDbORM) {
+        methods = get(opt, 'methods', null)
+        if (!isarr(methods)) {
+            methods = ['select', 'insert', 'save', 'del']
+        }
     }
 
     //extFuncs
@@ -157,16 +173,17 @@ function WServWebdataServerExec(opt = {}) {
     //hookAfters
     let hookAfters = get(opt, 'hookAfters', null)
 
-    //check
-    if (size(tableNames) === 0) {
-        console.log('opt.tableNames.lenght = 0')
+    //funcs
+    let funcs = {}
+    if (useDbORM) {
+
+        //cloneDeep
+        tableNames = cloneDeep(tableNames)
+
+        //buildFuncs
+        funcs = buildFuncs(tableNames, methods, operORM)
+
     }
-
-    //cloneDeep
-    tableNames = cloneDeep(tableNames)
-
-    //buildFuncs
-    let funcs = buildFuncs(tableNames, methods, operORM)
 
     //add ext. async funcs
     if (isobj(extFuncs)) {
