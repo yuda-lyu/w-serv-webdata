@@ -1,4 +1,4 @@
-import fs from 'fs'
+// import fs from 'fs'
 import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs' //編譯後axios與form-data都不適合執行於nodejs, 故需引用原程式碼執行
 import WServWebdataClient from './src/WServWebdataClient.mjs'
 

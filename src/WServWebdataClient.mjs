@@ -7,6 +7,7 @@ import genPm from 'wsemi/src/genPm.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
+import ispm from 'wsemi/src/ispm.mjs'
 import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
 
 
@@ -118,18 +119,11 @@ function WServWebdataClient(opt = {}) {
     }
 
     //cbGetToken
-    let _cbGetToken = get(opt, 'cbGetToken', null)
-    if (!isfun(_cbGetToken)) {
-        _cbGetToken = () => {
+    let cbGetToken = get(opt, 'cbGetToken', null)
+    if (!isfun(cbGetToken)) {
+        cbGetToken = () => {
             return ''
         }
-    }
-    let cbGetToken = () => {
-        let token = _cbGetToken()
-        if (token === undefined) {
-            token = ''
-        }
-        return token
     }
 
     //cbGetServerMethods
@@ -170,8 +164,17 @@ function WServWebdataClient(opt = {}) {
             }
             // console.log('args2', args)
 
+            //token
+            let token = cbGetToken()
+            if (ispm(token)) {
+                await token
+            }
+            if (token === undefined) { //若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
+                token = ''
+            }
+
             //input
-            let input = { __sysInputArgs__: args, __sysToken__: cbGetToken() }
+            let input = { __sysInputArgs__: args, __sysToken__: token }
 
             //execute
             await instWConverClient.execute(func, input,
