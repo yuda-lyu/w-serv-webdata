@@ -1,6 +1,6 @@
 import get from 'lodash/get'
 import each from 'lodash/each'
-import size from 'lodash/size'
+// import size from 'lodash/size'
 import keys from 'lodash/keys'
 import cloneDeep from 'lodash/cloneDeep'
 import isobj from 'wsemi/src/isobj.mjs'
