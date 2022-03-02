@@ -37,7 +37,7 @@ let wsdc = WServWebdataClient({
 
     },
     cbRecvData: (r) => {
-        console.log('sync data', r)
+        console.log('cbRecvData', r)
         //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
     },
 })

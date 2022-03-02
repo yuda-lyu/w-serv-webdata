@@ -28,6 +28,8 @@ async function run() {
         hookBefores: null,
         hookAfters: null,
     })
+
+    //error
     wsds.on('error', (err) => {
         console.log('error', err)
     })

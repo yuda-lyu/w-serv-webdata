@@ -76,14 +76,19 @@ async function run() {
     ]
     await saveData('tabB', r)
 
-    setInterval(() => {
-        console.log('update tabA')
+    let n = 0
+    let tn = setInterval(() => {
+        n++
+        console.log('update tabA', n)
         r = {
             id: 'id-tabA-peter',
             name: 'peter',
             value: Math.random(),
         }
         saveData('tabA', r)
+        if (n >= 5) {
+            clearInterval(tn)
+        }
     }, 3000)
 
     let wsrv = new WConverhpServer({
@@ -123,6 +128,8 @@ async function run() {
         hookBefores: null,
         hookAfters: null,
     })
+
+    //error
     wsds.on('error', (err) => {
         console.log('error', err)
     })
