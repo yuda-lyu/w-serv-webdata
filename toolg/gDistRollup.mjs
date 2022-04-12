@@ -13,12 +13,10 @@ rollupFiles({
     globals: {
         'path': 'path',
         'fs': 'fs',
-        'events': 'events',
     },
     external: [
         'path',
         'fs',
-        'events',
     ],
 })
 
