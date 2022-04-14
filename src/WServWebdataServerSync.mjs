@@ -4,6 +4,7 @@ import size from 'lodash/size'
 import cloneDeep from 'lodash/cloneDeep'
 import isarr from 'wsemi/src/isarr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
 import genID from 'wsemi/src/genID.mjs'
 import evem from 'wsemi/src/evem.mjs'
 import WSyncWebdataServer from 'w-sync-webdata/src/WSyncWebdataServer.mjs'
@@ -40,8 +41,14 @@ function WServWebdataServerSync(opt = {}) {
         console.log('opt.tableNames.lenght = 0')
     }
 
+    //fnTableTags
+    let fnTableTags = get(opt, 'fnTableTags', null)
+    if (!isestr(fnTableTags)) {
+        fnTableTags = 'tableTags.json'
+    }
+
     //wsds
-    let wsds = new WSyncWebdataServer()
+    let wsds = new WSyncWebdataServer({ fnTableTags })
 
     //cloneDeep
     tableNames = cloneDeep(tableNames)

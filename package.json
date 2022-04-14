@@ -1,7 +1,6 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.24",
-  "description": "An operator for data control and synchronization between nodejs and browser.",
+  "version": "1.0.25",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
     "lodash": "^4.17.21",
@@ -35,9 +34,5 @@
     "browser"
   ],
   "author": "yuda-lyu(semisphere)",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/yuda-lyu/w-serv-webdata/issues"
-  },
-  "homepage": "https://github.com/yuda-lyu/w-serv-webdata#readme"
+  "license": "MIT"
 }

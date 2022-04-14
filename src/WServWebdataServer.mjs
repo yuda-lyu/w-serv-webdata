@@ -121,6 +121,9 @@ function WServWebdataServer(opt = {}) {
     //hookAfters
     let hookAfters = get(opt, 'hookAfters', null)
 
+    //fnTableTags
+    let fnTableTags = get(opt, 'fnTableTags', null)
+
     //WServWebdataServerExec
     let wsde = WServWebdataServerExec({
         instWConverServer,
@@ -151,6 +154,7 @@ function WServWebdataServer(opt = {}) {
             instWConverServer,
             dbORMs,
             tableNames: tableNamesSync,
+            fnTableTags,
         })
         wsds.on('error', (err) => {
             ev.emit('error', err)
