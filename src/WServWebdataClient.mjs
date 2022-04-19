@@ -23,11 +23,17 @@ import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
- * import WConverhpClient from 'w-converhp/dist/w-converhp-client.umd.js'
- * import WServWebdataClient from 'w-serv-webdata/dist/w-serv-webdata-client.umd.js'
+ * import FormData from 'form-data'
+ * import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs' //編譯後axios與form-data都不適合執行於nodejs, 故需引用原程式碼執行
+ * import WServWebdataClient from './src/WServWebdataClient.mjs'
+ *
  *
  * //wcc
- * let wcc = WConverhpClient({...})
+ * let wcc = WConverhpClient({
+ *     FormData, //w-converhp的WConverhpClient, 於nodejs使用FormData需安裝套件並提供, 於browser就使用內建FormData故可不用給予
+ *     //url: window.location.origin + window.location.pathname,
+ *     url: 'http://localhost:9000',
+ * })
  *
  * //wsdc
  * let wsdc = WServWebdataClient({
@@ -77,6 +83,9 @@ import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
  *     },
  *     cbGetRefreshState: (r) => {
  *         console.log('cbGetRefreshState', 'needToRefresh', r.needToRefresh)
+ *     },
+ *     cbGetRefreshTable: (r) => {
+ *         console.log('cbGetRefreshTable', 'tableName', r.tableName, 'timeTag', r.timeTag)
  *     },
  *     cbBeforeUpdateTableTags: (r) => {
  *         console.log('cbBeforeUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))

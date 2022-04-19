@@ -1,7 +1,7 @@
 import fs from 'fs'
 import _ from 'lodash'
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
-import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs'
+import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
 import WServWebdataServer from './src/WServWebdataServer.mjs'
 
 
@@ -140,6 +140,7 @@ run()
     .catch((err) => {
         console.log(err)
     })
+
 // save then tabA [
 //     { n: 1, nModified: 1, ok: 1 },
 //     { n: 1, nModified: 1, ok: 1 },
