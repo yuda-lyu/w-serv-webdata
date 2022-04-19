@@ -1,6 +1,6 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
     "lodash": "^4.17.21",

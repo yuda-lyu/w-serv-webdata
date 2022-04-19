@@ -58,6 +58,8 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  *
  */
 function WServWebdataServer(opt = {}) {
+    let instWServWebdataServerExec = null
+    let instWServWebdataServerSync = null
 
     //ev
     let ev = evem()
@@ -125,7 +127,7 @@ function WServWebdataServer(opt = {}) {
     let fnTableTags = get(opt, 'fnTableTags', null)
 
     //WServWebdataServerExec
-    let wsde = WServWebdataServerExec({
+    instWServWebdataServerExec = WServWebdataServerExec({
         instWConverServer,
         cbGetUserIDFromToken,
         useDbORM,
@@ -136,11 +138,11 @@ function WServWebdataServer(opt = {}) {
         hookBefores,
         hookAfters,
     })
-    wsde.on('error', (err) => {
+    instWServWebdataServerExec.on('error', (err) => {
         ev.emit('error', err)
     })
 
-    //WServWebdataServerSync
+    //useDbORM
     if (useDbORM) {
 
         //check
@@ -149,17 +151,25 @@ function WServWebdataServer(opt = {}) {
             return ev
         }
 
-        //wsds
-        let wsds = WServWebdataServerSync({
+        //WServWebdataServerSync
+        instWServWebdataServerSync = WServWebdataServerSync({
             instWConverServer,
             dbORMs,
             tableNames: tableNamesSync,
             fnTableTags,
         })
-        wsds.on('error', (err) => {
+        instWServWebdataServerSync.on('error', (err) => {
             ev.emit('error', err)
         })
 
+    }
+
+    //save
+    ev.getInstWServWebdataServerExec = () => {
+        return instWServWebdataServerExec
+    }
+    ev.getInstWServWebdataServerSync = () => {
+        return instWServWebdataServerSync
     }
 
     return ev
