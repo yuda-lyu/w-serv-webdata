@@ -246,7 +246,7 @@ function WServWebdataClient(opt = {}) {
     let cbAfterPollingTableTags = get(opt, 'cbAfterPollingTableTags', null)
 
     //wsdc
-    let wsdc = WSyncWebdataClient()
+    let wsdc = new WSyncWebdataClient()
 
     function executeShell(func) {
         //通過instWConverClient.execute調用後端函數

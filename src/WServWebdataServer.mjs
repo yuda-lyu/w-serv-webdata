@@ -127,7 +127,7 @@ function WServWebdataServer(opt = {}) {
     let fnTableTags = get(opt, 'fnTableTags', null)
 
     //WServWebdataServerExec
-    instWServWebdataServerExec = WServWebdataServerExec({
+    instWServWebdataServerExec = new WServWebdataServerExec({
         instWConverServer,
         cbGetUserIDFromToken,
         useDbORM,
@@ -152,7 +152,7 @@ function WServWebdataServer(opt = {}) {
         }
 
         //WServWebdataServerSync
-        instWServWebdataServerSync = WServWebdataServerSync({
+        instWServWebdataServerSync = new WServWebdataServerSync({
             instWConverServer,
             dbORMs,
             tableNames: tableNamesSync,
