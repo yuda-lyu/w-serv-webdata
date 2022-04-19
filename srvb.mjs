@@ -15,7 +15,7 @@ async function run() {
         return `result: pa+pb=${pa + pb}`
     }
 
-    let wsds = WServWebdataServer({
+    let wsds = new WServWebdataServer({
         instWConverServer: wsrv,
         cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
             return 'id-for-admin'
