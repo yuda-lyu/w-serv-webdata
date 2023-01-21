@@ -71,34 +71,159 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
+ * import fs from 'fs'
+ * import _ from 'lodash'
  * import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
- * import WServWebdataServer from 'w-serv-webdata/src/WServWebdataServer.mjs'
+ * import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
+ * import WServWebdataServer from './src/WServWebdataServer.mjs'
  *
- * let wsrv = new WConverhpServer({...})
- * let procCommon = () => {...}
- * let tableNamesExec = [...]
- * let tableNamesSync = [...]
  *
- * let wsds = WServWebdataServer({
- *     instWConverServer: wsrv,
- *     cbGetUserIDFromToken: async () => {
- *         return 'id-for-admin'
- *     },
- *     dbORMs: woItems,
- *     operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
- *     tableNamesExec,
- *     tableNamesSync,
- *     extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
- *         // getUserFromID,
- *         // downloadFileFromID,
- *         // saveTableAndData,
- *     },
- *     hookBefores: null,
- *     hookAfters: null,
- * })
- * wsds.on('error', (err) => {
- *     console.log('error', err)
- * })
+ * async function run() {
+ *
+ *     //optWOrm
+ *     let optWOrm = {
+ *         url: 'mongodb://username:password@localhost:27017',
+ *         db: 'servdata',
+ *         cl: '',
+ *     }
+ *
+ *     //tableNamesExec, tableNamesSync
+ *     let tableNamesExec = ['tabA', 'tabB']
+ *     let tableNamesSync = ['tabA']
+ *
+ *     //woItems
+ *     let woItems = {}
+ *     for (let k in tableNamesExec) {
+ *         let v = tableNamesExec[k]
+ *         let opt = { ...optWOrm, cl: v }
+ *         let wo = new WOrm(opt)
+ *         woItems[v] = wo
+ *     }
+ *
+ *     async function saveData(cl, r) {
+ *
+ *         //w
+ *         let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件
+ *
+ *         //save
+ *         await w.save(r, { atomic: true }) //autoInsert: false
+ *             .then(function(msg) {
+ *                 console.log('save then', cl, msg)
+ *             })
+ *             .catch(function(msg) {
+ *                 console.log('save catch', cl, msg)
+ *             })
+ *
+ *     }
+ *
+ *     let r
+ *     r = [
+ *         {
+ *             id: 'id-tabA-peter',
+ *             name: 'peter',
+ *             value: 123,
+ *         },
+ *         {
+ *             id: 'id-tabA-rosemary',
+ *             name: 'rosemary',
+ *             value: 123.456,
+ *         },
+ *         {
+ *             id: 'id-tabA-kettle',
+ *             name: 'kettle',
+ *             value: 456,
+ *         },
+ *     ]
+ *     await saveData('tabA', r)
+ *     r = [
+ *         {
+ *             id: 'id-tabB-peter',
+ *             name: 'peter',
+ *             value: 123,
+ *         },
+ *         {
+ *             id: 'id-tabB-rosemary',
+ *             name: 'rosemary',
+ *             value: 123.456,
+ *         },
+ *     ]
+ *     await saveData('tabB', r)
+ *
+ *     let n = 0
+ *     let tn = setInterval(() => {
+ *         n++
+ *         console.log('update tabA', n)
+ *         r = {
+ *             id: 'id-tabA-peter',
+ *             name: 'peter',
+ *             value: Math.random(),
+ *         }
+ *         saveData('tabA', r)
+ *         if (n >= 5) {
+ *             clearInterval(tn)
+ *         }
+ *     }, 3000)
+ *
+ *     let wsrv = new WConverhpServer({
+ *         port: 9000,
+ *     })
+ *
+ *     let procCommon = async (userId, tableName, methodName, input) => {
+ *         // console.log('procCommon call', tableName, methodName, input)
+ *         let r = await woItems[tableName][methodName](input)
+ *         // console.log('procCommon result', r)
+ *         return r
+ *     }
+ *
+ *     let uploadFile = async (userId, { name, u8a }) => {
+ *         console.log('uploadFile', userId, name, _.size(u8a))
+ *         fs.writeFileSync(name, Buffer.from(u8a))
+ *         console.log('uploadFile writeFileSync finish')
+ *         return 'finish'
+ *     }
+ *
+ *     let wsds = new WServWebdataServer({
+ *         instWConverServer: wsrv,
+ *         cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
+ *             return 'id-for-admin'
+ *         },
+ *         dbORMs: woItems,
+ *         operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
+ *         tableNamesExec,
+ *         tableNamesSync,
+ *         extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
+ *             uploadFile,
+ *             // getUserFromID,
+ *             // downloadFileFromID,
+ *             // saveTableAndData,
+ *             //...
+ *         },
+ *         hookBefores: null,
+ *         hookAfters: null,
+ *         // fnTableTags: 'tableTags-serv-webdata.json',
+ *     })
+ *
+ *     //error
+ *     wsds.on('error', (err) => {
+ *         console.log('error', err)
+ *     })
+ *
+ * }
+ * run()
+ *     .catch((err) => {
+ *         console.log(err)
+ *     })
+ *
+ * // save then tabA [
+ * //     { n: 1, nModified: 1, ok: 1 },
+ * //     { n: 1, nModified: 1, ok: 1 },
+ * //     { n: 1, nModified: 1, ok: 1 }
+ * // ]
+ * // save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]
+ * // Server running at: http://localhost:9000
+ * // update tabA
+ * // save then tabA [ { n: 1, nModified: 1, ok: 1 } ]
+ * // repeat...
  *
  */
 function WServWebdataServer(opt = {}) {
@@ -235,7 +360,7 @@ export default WServWebdataServer
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.10</a> on Tue Apr 19 2022 16:34:53 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.10</a> on Sat Jan 21 2023 17:28:02 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
