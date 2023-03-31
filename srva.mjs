@@ -9,7 +9,7 @@ async function run() {
 
     //optWOrm
     let optWOrm = {
-        url: 'mongodb://username:password@localhost:27017',
+        url: 'mongodb://username:password@127.0.0.1:27017',
         db: 'servdata',
         cl: '',
     }
@@ -26,14 +26,16 @@ async function run() {
         let wo = new WOrm(opt)
         woItems[v] = wo
     }
+    console.log('woItems', woItems)
 
     async function saveData(cl, r) {
 
         //w
         let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件
+        console.log('cl=', cl, 'w=', w)
 
         //save
-        await w.save(r, { atomic: true }) //autoInsert: false
+        await w.save(r, { autoInsert: true, atomic: true })
             .then(function(msg) {
                 console.log('save then', cl, msg)
             })
@@ -61,7 +63,9 @@ async function run() {
             value: 456,
         },
     ]
+    console.log('saveData tabA before')
     await saveData('tabA', r)
+    console.log('saveData tabA after')
     r = [
         {
             id: 'id-tabB-peter',
@@ -75,6 +79,7 @@ async function run() {
         },
     ]
     await saveData('tabB', r)
+    console.log('saveData tabB')
 
     let n = 0
     let tn = setInterval(() => {

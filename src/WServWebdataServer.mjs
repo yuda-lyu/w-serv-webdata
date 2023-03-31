@@ -38,7 +38,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  *
  *     //optWOrm
  *     let optWOrm = {
- *         url: 'mongodb://username:password@localhost:27017',
+ *         url: 'mongodb://username:password@127.0.0.1:27017',
  *         db: 'servdata',
  *         cl: '',
  *     }
