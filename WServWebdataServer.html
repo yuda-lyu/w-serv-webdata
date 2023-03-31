@@ -14,6 +14,7 @@
     <link type="text/css" rel="stylesheet" href="styles/prettify.css">
     <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
     <script src="scripts/nav.js" defer></script>
+    
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
@@ -27,7 +28,9 @@
 
 <nav >
     
+    
     <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul>
+    
 </nav>
 
 <div id="main">
@@ -45,7 +48,9 @@
 <header>
     
         <h2>
-        WServWebdataServer
+        
+            WServWebdataServer
+        
         </h2>
         
     
@@ -67,6 +72,10 @@
 
 
 <dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>伺服器端之資料控制與同步器</p></li></ul></dd>
+    
 
     
     <dt class="tag-source">Source:</dt>
@@ -110,26 +119,20 @@
 
 
 
-<div class="description usertext">
-    <p>伺服器端之資料控制與同步器</p>
-</div>
 
 
 
 
 
 
-
-
-
-    <h5>Example</h5>
+    <h5 class="h5-examples">Example</h5>
     
-    <pre class="prettyprint"><code>import fs from 'fs'import _ from 'lodash'import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範import WServWebdataServer from './src/WServWebdataServer.mjs'async function run() {    //optWOrm    let optWOrm = {        url: 'mongodb://username:password@localhost:27017',        db: 'servdata',        cl: '',    }    //tableNamesExec, tableNamesSync    let tableNamesExec = ['tabA', 'tabB']    let tableNamesSync = ['tabA']    //woItems    let woItems = {}    for (let k in tableNamesExec) {        let v = tableNamesExec[k]        let opt = { ...optWOrm, cl: v }        let wo = new WOrm(opt)        woItems[v] = wo    }    async function saveData(cl, r) {        //w        let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件        //save        await w.save(r, { atomic: true }) //autoInsert: false            .then(function(msg) {                console.log('save then', cl, msg)            })            .catch(function(msg) {                console.log('save catch', cl, msg)            })    }    let r    r = [        {            id: 'id-tabA-peter',            name: 'peter',            value: 123,        },        {            id: 'id-tabA-rosemary',            name: 'rosemary',            value: 123.456,        },        {            id: 'id-tabA-kettle',            name: 'kettle',            value: 456,        },    ]    await saveData('tabA', r)    r = [        {            id: 'id-tabB-peter',            name: 'peter',            value: 123,        },        {            id: 'id-tabB-rosemary',            name: 'rosemary',            value: 123.456,        },    ]    await saveData('tabB', r)    let n = 0    let tn = setInterval(() => {        n++        console.log('update tabA', n)        r = {            id: 'id-tabA-peter',            name: 'peter',            value: Math.random(),        }        saveData('tabA', r)        if (n >= 5) {            clearInterval(tn)        }    }, 3000)    let wsrv = new WConverhpServer({        port: 9000,    })    let procCommon = async (userId, tableName, methodName, input) => {        // console.log('procCommon call', tableName, methodName, input)        let r = await woItems[tableName][methodName](input)        // console.log('procCommon result', r)        return r    }    let uploadFile = async (userId, { name, u8a }) => {        console.log('uploadFile', userId, name, _.size(u8a))        fs.writeFileSync(name, Buffer.from(u8a))        console.log('uploadFile writeFileSync finish')        return 'finish'    }    let wsds = new WServWebdataServer({        instWConverServer: wsrv,        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數            return 'id-for-admin'        },        dbORMs: woItems,        operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input        tableNamesExec,        tableNamesSync,        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數            uploadFile,            // getUserFromID,            // downloadFileFromID,            // saveTableAndData,            //...        },        hookBefores: null,        hookAfters: null,        // fnTableTags: 'tableTags-serv-webdata.json',    })    //error    wsds.on('error', (err) => {        console.log('error', err)    })}run()    .catch((err) => {        console.log(err)    })// save then tabA [//     { n: 1, nModified: 1, ok: 1 },//     { n: 1, nModified: 1, ok: 1 },//     { n: 1, nModified: 1, ok: 1 }// ]// save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]// Server running at: http://localhost:9000// update tabA// save then tabA [ { n: 1, nModified: 1, ok: 1 } ]// repeat...</code></pre>
+    <pre class="prettyprint"><code>import fs from 'fs'import _ from 'lodash'import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範import WServWebdataServer from './src/WServWebdataServer.mjs'async function run() {    //optWOrm    let optWOrm = {        url: 'mongodb://username:password@127.0.0.1:27017',        db: 'servdata',        cl: '',    }    //tableNamesExec, tableNamesSync    let tableNamesExec = ['tabA', 'tabB']    let tableNamesSync = ['tabA']    //woItems    let woItems = {}    for (let k in tableNamesExec) {        let v = tableNamesExec[k]        let opt = { ...optWOrm, cl: v }        let wo = new WOrm(opt)        woItems[v] = wo    }    async function saveData(cl, r) {        //w        let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件        //save        await w.save(r, { atomic: true }) //autoInsert: false            .then(function(msg) {                console.log('save then', cl, msg)            })            .catch(function(msg) {                console.log('save catch', cl, msg)            })    }    let r    r = [        {            id: 'id-tabA-peter',            name: 'peter',            value: 123,        },        {            id: 'id-tabA-rosemary',            name: 'rosemary',            value: 123.456,        },        {            id: 'id-tabA-kettle',            name: 'kettle',            value: 456,        },    ]    await saveData('tabA', r)    r = [        {            id: 'id-tabB-peter',            name: 'peter',            value: 123,        },        {            id: 'id-tabB-rosemary',            name: 'rosemary',            value: 123.456,        },    ]    await saveData('tabB', r)    let n = 0    let tn = setInterval(() => {        n++        console.log('update tabA', n)        r = {            id: 'id-tabA-peter',            name: 'peter',            value: Math.random(),        }        saveData('tabA', r)        if (n >= 5) {            clearInterval(tn)        }    }, 3000)    let wsrv = new WConverhpServer({        port: 9000,    })    let procCommon = async (userId, tableName, methodName, input) => {        // console.log('procCommon call', tableName, methodName, input)        let r = await woItems[tableName][methodName](input)        // console.log('procCommon result', r)        return r    }    let uploadFile = async (userId, { name, u8a }) => {        console.log('uploadFile', userId, name, _.size(u8a))        fs.writeFileSync(name, Buffer.from(u8a))        console.log('uploadFile writeFileSync finish')        return 'finish'    }    let wsds = new WServWebdataServer({        instWConverServer: wsrv,        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數            return 'id-for-admin'        },        dbORMs: woItems,        operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input        tableNamesExec,        tableNamesSync,        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數            uploadFile,            // getUserFromID,            // downloadFileFromID,            // saveTableAndData,            //...        },        hookBefores: null,        hookAfters: null,        // fnTableTags: 'tableTags-serv-webdata.json',    })    //error    wsds.on('error', (err) => {        console.log('error', err)    })}run()    .catch((err) => {        console.log(err)    })// save then tabA [//     { n: 1, nModified: 1, ok: 1 },//     { n: 1, nModified: 1, ok: 1 },//     { n: 1, nModified: 1, ok: 1 }// ]// save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]// Server running at: http://localhost:9000// update tabA// save then tabA [ { n: 1, nModified: 1, ok: 1 } ]// repeat...</code></pre>
 
 
 
 
-    <h5>Parameters:</h5>
+    <h5 class="h5-parameters">Parameters:</h5>
     
 
 <table class="params">
@@ -165,6 +168,7 @@
             
                 
 <span class="param-type">Object</span>
+
 
 
             
@@ -229,6 +233,7 @@
 <span class="param-type">Object</span>
 
 
+
             
             </td>
 
@@ -262,6 +267,7 @@
             
                 
 <span class="param-type">Boolean</span>
+
 
 
             
@@ -303,6 +309,7 @@
 <span class="param-type">Object</span>
 
 
+
             
             </td>
 
@@ -340,6 +347,7 @@
             
                 
 <span class="param-type">function</span>
+
 
 
             
@@ -381,6 +389,7 @@
 <span class="param-type">Array</span>
 
 
+
             
             </td>
 
@@ -418,6 +427,7 @@
             
                 
 <span class="param-type">Array</span>
+
 
 
             
@@ -459,6 +469,7 @@
 <span class="param-type">Array</span>
 
 
+
             
             </td>
 
@@ -496,6 +507,7 @@
             
                 
 <span class="param-type">function</span>
+
 
 
             
@@ -537,6 +549,7 @@
 <span class="param-type">Object</span>
 
 
+
             
             </td>
 
@@ -576,6 +589,7 @@
 <span class="param-type">function</span>
 
 
+
             
             </td>
 
@@ -613,6 +627,7 @@
             
                 
 <span class="param-type">function</span>
+
 
 
             
@@ -667,7 +682,7 @@
 
 
 
-<h5>Returns:</h5>
+<h5 class="h5-returns">Returns:</h5>
 
         
 <div class="param-desc">
@@ -683,6 +698,7 @@
     <dd>
         
 <span class="param-type">Object</span>
+
 
 
     </dd>
@@ -729,7 +745,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.10</a> on Sat Jan 21 2023 17:28:02 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.2</a> on Fri Mar 31 2023 16:01:19 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
