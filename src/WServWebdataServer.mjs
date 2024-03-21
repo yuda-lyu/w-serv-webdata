@@ -1,4 +1,4 @@
-import get from 'lodash/get'
+import get from 'lodash-es/get'
 // import isarr from 'wsemi/src/isarr.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 // import isfun from 'wsemi/src/isfun.mjs'
@@ -28,7 +28,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @example
  *
  * import fs from 'fs'
- * import _ from 'lodash'
+ * import _ from 'lodash-es'
  * import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
  * import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
  * import WServWebdataServer from './src/WServWebdataServer.mjs'

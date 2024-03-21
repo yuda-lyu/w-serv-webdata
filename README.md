@@ -6,6 +6,7 @@ An operator for data control and synchronization between nodejs and browser.
 [![license](https://img.shields.io/npm/l/w-serv-webdata.svg?style=flat)](https://npmjs.org/package/w-serv-webdata) 
 [![gzip file size](http://img.badgesize.io/yuda-lyu/w-serv-webdata/master/dist/w-serv-webdata-server.umd.js.svg?compression=gzip)](https://github.com/yuda-lyu/w-serv-webdata)
 [![npm download](https://img.shields.io/npm/dt/w-serv-webdata.svg)](https://npmjs.org/package/w-serv-webdata) 
+[![npm download](https://img.shields.io/npm/dm/w-serv-webdata.svg)](https://npmjs.org/package/w-serv-webdata)
 [![jsdelivr download](https://img.shields.io/jsdelivr/npm/hm/w-serv-webdata.svg)](https://www.jsdelivr.com/package/npm/w-serv-webdata)
 
 ## Documentation
@@ -18,7 +19,7 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-serv-webdata-server` and `w-serv-webdata-client` is mainly dependent on `lodash`, `w-sync-webdata` and `wsemi`.
+> **Note:** `w-serv-webdata-server` and `w-serv-webdata-client` is mainly dependent on `lodash-es`, `w-sync-webdata` and `wsemi`.
 
 ```alias
 npm i w-serv-webdata
@@ -28,7 +29,7 @@ npm i w-serv-webdata
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/srva.mjs)]
 ```alias
 import fs from 'fs'
-import _ from 'lodash'
+import _ from 'lodash-es'
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
 import WServWebdataServer from './src/WServWebdataServer.mjs'
@@ -373,14 +374,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.30/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.31/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/weba.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.30/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.31/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']

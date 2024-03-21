@@ -1,5 +1,5 @@
 import fs from 'fs'
-import _ from 'lodash'
+import _ from 'lodash-es'
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
 import WServWebdataServer from './src/WServWebdataServer.mjs'
