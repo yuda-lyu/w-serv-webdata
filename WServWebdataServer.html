@@ -64,7 +64,7 @@
 
     
 
-    <h4 class="name" id="WServWebdataServer"><span class="type-signature"></span>new WServWebdataServer<span class="signature">(opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Object}</span></h4>
+    <h4 class="name" id="WServWebdataServer"><span class="type-signature"></span>new WServWebdataServer<span class="signature">(instWConverServer, opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Object}</span></h4>
 
     
 
@@ -80,7 +80,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line185">line 185</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line36">line 36</a>
     </li></ul></dd>
     
 
@@ -127,7 +127,7 @@
 
     <h5 class="h5-examples">Example</h5>
     
-    <pre class="prettyprint"><code>import fs from 'fs'import _ from 'lodash-es'import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範import WServWebdataServer from './src/WServWebdataServer.mjs'async function run() {    //optWOrm    let optWOrm = {        url: 'mongodb://username:password@127.0.0.1:27017',        db: 'servdata',        cl: '',    }    //tableNamesExec, tableNamesSync    let tableNamesExec = ['tabA', 'tabB']    let tableNamesSync = ['tabA']    //woItems    let woItems = {}    for (let k in tableNamesExec) {        let v = tableNamesExec[k]        let opt = { ...optWOrm, cl: v }        let wo = new WOrm(opt)        woItems[v] = wo    }    async function saveData(cl, r) {        //w        let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件        //save        await w.save(r, { atomic: true }) //autoInsert: false            .then(function(msg) {                console.log('save then', cl, msg)            })            .catch(function(msg) {                console.log('save catch', cl, msg)            })    }    let r    r = [        {            id: 'id-tabA-peter',            name: 'peter',            value: 123,        },        {            id: 'id-tabA-rosemary',            name: 'rosemary',            value: 123.456,        },        {            id: 'id-tabA-kettle',            name: 'kettle',            value: 456,        },    ]    await saveData('tabA', r)    r = [        {            id: 'id-tabB-peter',            name: 'peter',            value: 123,        },        {            id: 'id-tabB-rosemary',            name: 'rosemary',            value: 123.456,        },    ]    await saveData('tabB', r)    let n = 0    let tn = setInterval(() => {        n++        console.log('update tabA', n)        r = {            id: 'id-tabA-peter',            name: 'peter',            value: Math.random(),        }        saveData('tabA', r)        if (n >= 5) {            clearInterval(tn)        }    }, 3000)    let wsrv = new WConverhpServer({        port: 9000,    })    let procCommon = async (userId, tableName, methodName, input) => {        // console.log('procCommon call', tableName, methodName, input)        let r = await woItems[tableName][methodName](input)        // console.log('procCommon result', r)        return r    }    let uploadFile = async (userId, { name, u8a }) => {        console.log('uploadFile', userId, name, _.size(u8a))        fs.writeFileSync(name, Buffer.from(u8a))        console.log('uploadFile writeFileSync finish')        return 'finish'    }    let wsds = new WServWebdataServer({        instWConverServer: wsrv,        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數            return 'id-for-admin'        },        dbORMs: woItems,        operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input        tableNamesExec,        tableNamesSync,        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數            uploadFile,            // getUserFromID,            // downloadFileFromID,            // saveTableAndData,            //...        },        hookBefores: null,        hookAfters: null,        // fnTableTags: 'tableTags-serv-webdata.json',    })    //error    wsds.on('error', (err) => {        console.log('error', err)    })}run()    .catch((err) => {        console.log(err)    })// save then tabA [//     { n: 1, nModified: 1, ok: 1 },//     { n: 1, nModified: 1, ok: 1 },//     { n: 1, nModified: 1, ok: 1 }// ]// save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]// Server running at: http://localhost:9000// update tabA// save then tabA [ { n: 1, nModified: 1, ok: 1 } ]// repeat...</code></pre>
+    <pre class="prettyprint"><code>// repeat...</code></pre>
 
 
 
@@ -157,6 +157,42 @@
     </thead>
 
     <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>instWConverServer</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入通訊服務實體物件，可使用例如WConverhpServer等建立</p></td>
+        </tr>
+
     
 
         <tr>
@@ -224,43 +260,7 @@
 
         <tr>
             
-                <td class="name"><code>instWConverServer</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入通訊服務實體物件，可使用例如WConverhpServer等建立</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>useDbORM</code></td>
+                <td class="name"><code>useDbOrm</code></td>
             
 
             <td class="type">
@@ -300,7 +300,7 @@
 
         <tr>
             
-                <td class="name"><code>dbORMs</code></td>
+                <td class="name"><code>kpOrm</code></td>
             
 
             <td class="type">
@@ -340,7 +340,7 @@
 
         <tr>
             
-                <td class="name"><code>operORM</code></td>
+                <td class="name"><code>operOrm</code></td>
             
 
             <td class="type">
@@ -373,7 +373,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入各資料表的操作通用接口物件，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由extFuncs提供的函數，就為全部可由前端執行的函數，預設{}</p></td>
+            <td class="description last"><p>輸入各資料表的操作通用接口物件，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由kpFunExt提供的函數，就為全部可由前端執行的函數，預設{}</p></td>
         </tr>
 
     
@@ -500,7 +500,7 @@
 
         <tr>
             
-                <td class="name"><code>cbGetUserIDFromToken</code></td>
+                <td class="name"><code>getUserIdByToken</code></td>
             
 
             <td class="type">
@@ -540,7 +540,7 @@
 
         <tr>
             
-                <td class="name"><code>extFuncs</code></td>
+                <td class="name"><code>kpFunExt</code></td>
             
 
             <td class="type">
@@ -574,86 +574,6 @@
             
 
             <td class="description last"><p>輸入額外擴充執行函數物件，key為函數名而值為函數，預設null</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>hookBefores</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">function</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>null</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入執行函數的前攔截函數，預設null</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>hookAfters</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">function</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>null</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入執行函數的後攔截函數，預設null</p></td>
         </tr>
 
     
@@ -745,7 +665,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.2</a> on Mon Mar 25 2024 22:13:32 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.2</a> on Sat Mar 29 2025 22:47:47 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
