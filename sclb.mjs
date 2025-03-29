@@ -12,43 +12,44 @@ let wcc = WConverhpClient({
 })
 
 //wsdc
-let wsdc = WServWebdataClient({
-    instWConverClient: wcc,
-    cbGetToken: () => {
-        return '' //Vue.prototype.$store.state.userToken
-    },
-    cbGetServerMethods: (r) => {
-        console.log('cbGetServerMethods', r)
-        //Vue.prototype.$fapi = r
+let wsdc = WServWebdataClient(
+    wcc,
+    {
+        funGetToken: () => {
+            return '' //Vue.prototype.$store.state.userToken
+        },
+        funGetServerMethods: (r) => {
+            console.log('funGetServerMethods', r)
+            //Vue.prototype.$fapi = r
 
-        //execFunA
-        r.execFunA({
-            pa: 1,
-            pb: 2.5,
-        }, ({ prog, p, m }) => {
-            console.log('execFunA', prog, p, m)
-        })
-            .then((res) => {
-                console.log('execFunA then', res)
+            //execFunA
+            r.execFunA({
+                pa: 1,
+                pb: 2.5,
+            }, ({ prog, p, m }) => {
+                console.log('execFunA', prog, p, m)
             })
-            .catch((err) => {
-                console.log('execFunA catch', err)
-            })
+                .then((res) => {
+                    console.log('execFunA then', res)
+                })
+                .catch((err) => {
+                    console.log('execFunA catch', err)
+                })
 
-    },
-    cbRecvData: (r) => {
-        console.log('cbRecvData', r)
+        },
+        funRecvData: (r) => {
+            console.log('funRecvData', r)
         //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
-    },
-})
+        },
+    })
 
 //error
 wsdc.on('error', (err) => {
     console.log('error', err)
 })
-// cbGetServerMethods {
+// funGetServerMethods {
 //     execFunA: [AsyncFunction: f]
 // }
 // execFunA then result: pa+pb=3.5
 
-//node --experimental-modules --es-module-specifier-resolution=node sclb.mjs
+//node --experimental-modules sclb.mjs

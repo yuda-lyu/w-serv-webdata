@@ -5,257 +5,75 @@ import last from 'lodash-es/last.js'
 import dropRight from 'lodash-es/dropRight.js'
 import genPm from 'wsemi/src/genPm.mjs'
 import evem from 'wsemi/src/evem.mjs'
+import haskey from 'wsemi/src/haskey.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
 import ispm from 'wsemi/src/ispm.mjs'
 import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
+import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
 
 
 /**
  * 瀏覽器端之資料控制與同步器
  *
  * @class
+ * @param {Object} instWConverClient 輸入通訊服務實體物件，可使用例如WConverhpClient等建立
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Object} opt.instWConverClient 輸入通訊服務實體物件，可使用例如WConverhpClient等建立
- * @param {Function} [opt.cbGetToken=()=>''] 輸入取得使用者token的回調函數，預設()=>''
- * @param {Function} opt.cbGetServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將放入物件當中，key為函數名而值為函數，並通過回調函數提供該物件
- * @param {Function} opt.cbRecvData 輸入取得變更表資料的回調函數
+ * @param {Function} [opt.funGetToken=()=>''] 輸入取得使用者token的回調函數，預設()=>''
+ * @param {Function} opt.funGetServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將放入物件當中，key為函數名而值為函數，並通過回調函數提供該物件
+ * @param {Function} opt.funRecvData 輸入取得變更表資料的回調函數
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
- * import FormData from 'form-data'
- * import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs' //編譯後axios與form-data都不適合執行於nodejs, 故需引用原程式碼執行
- * import WServWebdataClient from './src/WServWebdataClient.mjs'
- *
- *
- * //wcc
- * let wcc = WConverhpClient({
- *     FormData, //w-converhp的WConverhpClient, 於nodejs使用FormData需安裝套件並提供, 於browser就使用內建FormData故可不用給予
- *     //url: window.location.origin + window.location.pathname,
- *     url: 'http://localhost:9000',
- * })
- *
- * //wsdc
- * let wsdc = WServWebdataClient({
- *     instWConverClient: wcc,
- *     cbGetToken: () => {
- *         return '' //Vue.prototype.$store.state.userToken
- *     },
- *     cbGetServerMethods: (r) => {
- *         console.log('cbGetServerMethods', r)
- *         //Vue.prototype.$fapi = r
- *
- *         //select tabA
- *         r.tabA.select(({ prog, p, m }) => {
- *             console.log('select tabA', prog, p, m)
- *         })
- *             .then((res) => {
- *                 console.log('r.tabA.select then', res)
- *             })
- *             .catch((err) => {
- *                 console.log('r.tabA.select catch', err)
- *             })
- *
- *         //select tabB
- *         r.tabB.select(({ prog, p, m }) => {
- *             console.log('select tabB', prog, p, m)
- *         })
- *             .then((res) => {
- *                 console.log('r.tabB.select then', res)
- *             })
- *             .catch((err) => {
- *                 console.log('r.tabB.select catch', err)
- *             })
- *
- *         //uploadFile
- *         r.uploadFile({
- *             name: 'zdata.b1',
- *             u8a: new Uint8Array([66, 97, 115]),
- *             // u8a: new Uint8Array(fs.readFileSync('../_data/500mb.7z')), //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
- *         }, ({ prog, p, m }) => {
- *             console.log('uploadFile', prog, p, m)
- *         })
- *
- *     },
- *     cbRecvData: (r) => {
- *         console.log('cbRecvData', r)
- *         //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
- *     },
- *     cbGetRefreshState: (r) => {
- *         console.log('cbGetRefreshState', 'needToRefresh', r.needToRefresh)
- *     },
- *     cbGetRefreshTable: (r) => {
- *         console.log('cbGetRefreshTable', 'tableName', r.tableName, 'timeTag', r.timeTag)
- *     },
- *     cbBeforeUpdateTableTags: (r) => {
- *         console.log('cbBeforeUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))
- *     },
- *     cbAfterUpdateTableTags: (r) => {
- *         console.log('cbAfterUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))
- *     },
- *     cbBeforePollingTableTags: () => {
- *         console.log('cbBeforePollingTableTags')
- *     },
- *     cbAfterPollingTableTags: () => {
- *         console.log('cbAfterPollingTableTags')
- *     },
- * })
- *
- * //error
- * wsdc.on('error', (err) => {
- *     console.log('error', err)
- * })
- *
- * // cbGetServerMethods {
- * //   tabA: {
- * //     select: [AsyncFunction: f],
- * //     insert: [AsyncFunction: f],
- * //     save: [AsyncFunction: f],
- * //     del: [AsyncFunction: f]
- * //   },
- * //   tabB: {
- * //     select: [AsyncFunction: f],
- * //     insert: [AsyncFunction: f],
- * //     save: [AsyncFunction: f],
- * //     del: [AsyncFunction: f]
- * //   },
- * //   uploadFile: [AsyncFunction: f]
- * // }
- * // r.tabB.select then [
- * //   { id: 'id-tabB-peter', name: 'peter', value: 123 },
- * //   { id: 'id-tabB-rosemary', name: 'rosemary', value: 123.456 }
- * // ]
- * // r.tabA.select then [
- * //   { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //   { id: 'id-tabA-peter', name: 'peter', value: 123 },
- * //   { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },
- * //   { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * // ]
- * // cbBeforeUpdateTableTags needToRefresh true
- * // cbGetRefreshState needToRefresh true
- * // cbGetRefreshTable tableName tabA timeTag xzZGGa
- * // cbRecvData {
- * //   tableName: 'tabA',
- * //   timeTag: 'xzZGGa',
- * //   data: [
- * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //     { id: 'id-tabA-peter', name: 'peter', value: 123 },
- * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * //   ]
- * // }
- * // cbAfterUpdateTableTags needToRefresh false
- * // cbBeforeUpdateTableTags needToRefresh true
- * // cbGetRefreshState needToRefresh true
- * // cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:46+08:00|MneMQH
- * // cbRecvData {
- * //   tableName: 'tabA',
- * //   timeTag: '2022-03-02T16:40:46+08:00|MneMQH',
- * //   data: [
- * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //     { id: 'id-tabA-peter', name: 'peter', value: 0.5847204423720489 },
- * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * //   ]
- * // }
- * // cbAfterUpdateTableTags needToRefresh false
- * // cbBeforeUpdateTableTags needToRefresh true
- * // cbGetRefreshState needToRefresh true
- * // cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:49+08:00|qzQJQ4
- * // cbRecvData {
- * //   tableName: 'tabA',
- * //   timeTag: '2022-03-02T16:40:49+08:00|qzQJQ4',
- * //   data: [
- * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //     { id: 'id-tabA-peter', name: 'peter', value: 0.9801109028960009 },
- * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * //   ]
- * // }
- * // cbAfterUpdateTableTags needToRefresh false
- * // cbBeforeUpdateTableTags needToRefresh true
- * // cbGetRefreshState needToRefresh true
- * // cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:52+08:00|Cnk33i
- * // cbRecvData {
- * //   tableName: 'tabA',
- * //   timeTag: '2022-03-02T16:40:52+08:00|Cnk33i',
- * //   data: [
- * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //     { id: 'id-tabA-peter', name: 'peter', value: 0.9667464984165397 },
- * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * //   ]
- * // }
- * // cbAfterUpdateTableTags needToRefresh false
- * // cbBeforeUpdateTableTags needToRefresh true
- * // cbGetRefreshState needToRefresh true
- * // cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:55+08:00|wyFygc
- * // cbRecvData {
- * //   tableName: 'tabA',
- * //   timeTag: '2022-03-02T16:40:55+08:00|wyFygc',
- * //   data: [
- * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //     { id: 'id-tabA-peter', name: 'peter', value: 0.311292348917773 },
- * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * //   ]
- * // }
- * // cbAfterUpdateTableTags needToRefresh false
- * // cbBeforeUpdateTableTags needToRefresh true
- * // cbGetRefreshState needToRefresh true
- * // cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:58+08:00|Bd82vG
- * // cbRecvData {
- * //   tableName: 'tabA',
- * //   timeTag: '2022-03-02T16:40:58+08:00|Bd82vG',
- * //   data: [
- * //     { id: 'id-tabB-peter', name: 'peter', value: 0.6735191308795969 },
- * //     { id: 'id-tabA-peter', name: 'peter', value: 0.6912250899420782 },
- * //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
- * //   ]
- * // }
- * // cbAfterUpdateTableTags needToRefresh false
  *
  */
-function WServWebdataClient(opt = {}) {
+function WServWebdataClient(instWConverClient, opt = {}) {
     let execs = {}
 
-    //ev
-    let ev = evem()
-
-    //instWConverClient
-    let instWConverClient = get(opt, 'instWConverClient', null)
-    if (instWConverClient === null) {
-        ev.emit('error', 'invalid opt.instWConverClient')
-        return ev
+    //check
+    if (!iseobj(instWConverClient)) {
+        console.log('instWConverClient is not an effective object, and set instWConverClient to an EventEmitter')
+        instWConverClient = evem()
+    }
+    if (!haskey(instWConverClient, 'emit')) {
+        throw new Error(`instWConverClient is not an EventEmitter`)
     }
 
-    //cbGetToken
-    let cbGetToken = get(opt, 'cbGetToken', null)
-    if (!isfun(cbGetToken)) {
-        cbGetToken = () => {
+    //funGetToken
+    let funGetToken = get(opt, 'funGetToken', null)
+    if (!isfun(funGetToken)) {
+        funGetToken = () => {
             return ''
         }
     }
 
-    //cbGetServerMethods
-    let cbGetServerMethods = get(opt, 'cbGetServerMethods', null)
-    if (!isfun(cbGetServerMethods)) {
-        ev.emit('error', 'invalid opt.cbGetServerMethods')
-        return ev
+    //funGetServerMethods
+    let funGetServerMethods = get(opt, 'funGetServerMethods', null)
+    if (!isfun(funGetServerMethods)) {
+        instWConverClient.emit('error', 'invalid opt.funGetServerMethods')
+        return instWConverClient
     }
 
-    //cbRecvData
-    let cbRecvData = get(opt, 'cbRecvData', null)
-    if (!isfun(cbRecvData)) {
-        ev.emit('error', 'invalid opt.cbRecvData')
-        return ev
+    //funRecvData
+    let funRecvData = get(opt, 'funRecvData', null)
+    if (!isfun(funRecvData)) {
+        instWConverClient.emit('error', 'invalid opt.funRecvData')
+        return instWConverClient
     }
 
-    //cbGetRefreshState
-    let cbGetRefreshState = get(opt, 'cbGetRefreshState', null)
-    let cbGetRefreshTable = get(opt, 'cbGetRefreshTable', null)
-    let cbBeforeUpdateTableTags = get(opt, 'cbBeforeUpdateTableTags', null)
-    let cbAfterUpdateTableTags = get(opt, 'cbAfterUpdateTableTags', null)
-    let cbBeforePollingTableTags = get(opt, 'cbBeforePollingTableTags', null)
-    let cbAfterPollingTableTags = get(opt, 'cbAfterPollingTableTags', null)
+    //funGetRefreshState
+    let funGetRefreshState = get(opt, 'funGetRefreshState', null)
+    let funGetRefreshTable = get(opt, 'funGetRefreshTable', null)
+    let funBeforeUpdateTableTags = get(opt, 'funBeforeUpdateTableTags', null)
+    let funAfterUpdateTableTags = get(opt, 'funAfterUpdateTableTags', null)
 
-    //wsdc
-    let wsdc = new WSyncWebdataClient()
+    //擴充同步資料功能
+    instWConverClient = new WSyncWebdataClient(instWConverClient)
+
+    //擴充廣播功能
+    instWConverClient = new WServBroadcastClient(instWConverClient)
 
     function executeShell(func) {
         //通過instWConverClient.execute調用後端函數
@@ -279,13 +97,13 @@ function WServWebdataClient(opt = {}) {
             // console.log('args2', args)
 
             //token
-            let token = cbGetToken()
+            let token = funGetToken()
             if (ispm(token)) {
                 token = await token
             }
 
             //check, 若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
-            if (token === undefined) {
+            if (!isestr(token)) {
                 token = ''
             }
 
@@ -326,8 +144,22 @@ function WServWebdataClient(opt = {}) {
             set(execs, func, executeShell(func))
         })
 
-        //cbGetServerMethods
-        cbGetServerMethods(execs)
+        //funGetServerMethods
+        funGetServerMethods(execs)
+
+    }
+
+    function updateSyncTable(data) {
+        //當收到後端broadcast
+
+        //check, 當mode='syncKpTable'代表為資料同步器發送訊息(各資料表時間戳), 調用wsdc.updateTableTags(傳入時間戳), 會觸發wsdc.refreshTable事件, 於內呼叫API來更新資料
+        if (get(data, 'mode') === 'syncKpTable') {
+            // console.log('syncKpTable', data)
+
+            //updateTableTags
+            instWConverClient.updateTableTags(get(data, 'data'))
+
+        }
 
     }
 
@@ -335,28 +167,32 @@ function WServWebdataClient(opt = {}) {
         // console.log('instWConverClient: openOnce')
 
         //getFuncList, 取得可用函數清單
-        executeShell('getFuncList')()
+        executeShell('[sys:getFuncList]')()
             .then((res) => {
+                // console.log('[sys:getFuncList] res', res)
+
+                //bindFuncs
                 bindFuncs(res)
+
             })
             .catch((err) => {
-                ev.emit('error', err)
+                instWConverClient.emit('error', err)
+            })
+
+        //getFuncList, 取得同步資料
+        executeShell('[sys:getTableTags]')()
+            .then((data) => {
+                // console.log('[sys:getTableTags] data', data)
+
+                //updateSyncTable, 啟動並連線成功後取得時間戳
+                updateSyncTable(data)
+
+            })
+            .catch((err) => {
+                instWConverClient.emit('error', err)
             })
 
     })
-
-    function updateSyncTable(data) {
-        //當收到後端broadcast與deliver時
-
-        //check, 當mode='syncTable'代表為資料同步器發送訊息(各資料表時間戳), 調用wsdc.updateTableTags(傳入時間戳), 會觸發wsdc.refreshTable事件, 於內呼叫API來更新資料
-        if (get(data, 'mode') === 'syncTable') {
-
-            //updateTableTags
-            wsdc.updateTableTags(get(data, 'data'))
-
-        }
-
-    }
 
     instWConverClient.on('broadcast', function(data) {
         // console.log('instWConverClient: broadcast', data)
@@ -366,38 +202,30 @@ function WServWebdataClient(opt = {}) {
 
     })
 
-    instWConverClient.on('deliver', function(data) { //使用者第1次瀏覽時會用deliver推播時間戳
-        // console.log('instWConverClient: deliver', data)
-
-        //updateSyncTable
-        updateSyncTable(data)
-
-    })
-
     // //setTableTags, 前端先不暫存時間戳於localStorage
-    // wsdc.setTableTags(tableTagsCl)
+    // instWConverClient.setTableTags(tableTagsCl)
 
     //refreshState
-    wsdc.on('refreshState', (msg) => {
+    instWConverClient.on('refreshState', (msg) => {
         // console.log('refreshState needToRefresh', msg.needToRefresh)
-        if (isfun(cbGetRefreshState)) {
-            cbGetRefreshState(msg)
+        if (isfun(funGetRefreshState)) {
+            funGetRefreshState(msg)
         }
     })
 
     //refreshTable, 收到資料表時間戳有變更通知
-    wsdc.on('refreshTable', (input) => {
+    instWConverClient.on('refreshTable', (input) => {
         // console.log('refreshTable', input)
 
         //check
         if (!iseobj(execs[input.tableName])) {
-            ev.emit('error', `無法存取${input.tableName}資料表`)
+            instWConverClient.emit('error', `invalid execs[${input.tableName}]`)
             return
         }
 
-        //cbGetRefreshTable
-        if (isfun(cbGetRefreshTable)) {
-            cbGetRefreshTable(input)
+        //funGetRefreshTable
+        if (isfun(funGetRefreshTable)) {
+            funGetRefreshTable(input)
         }
 
         //select, 通過$fapi來取資料
@@ -409,51 +237,35 @@ function WServWebdataClient(opt = {}) {
             })
             .catch((err) => {
                 console.log(`${input.tableName}.select: catch`, err)
+                input.pm.resolve([]) //refreshTable內通過pm回傳, 發生非預期錯誤用resolve回傳避免自動同步中斷
             })
 
     })
 
     //getData
-    wsdc.on('getData', (data) => {
+    instWConverClient.on('getData', (data) => {
         // console.log('getData', data)
 
-        //cbRecvData
-        cbRecvData(data)
+        //funRecvData
+        funRecvData(data)
 
     })
 
     //beforeUpdateTableTags, afterUpdateTableTags, beforePollingTableTags, afterPollingTableTags
-    wsdc.on('beforeUpdateTableTags', (msg) => {
+    instWConverClient.on('beforeUpdateTableTags', (msg) => {
         // console.log('client: beforeUpdateTableTags', msg)
-        if (isfun(cbBeforeUpdateTableTags)) {
-            cbBeforeUpdateTableTags(msg)
+        if (isfun(funBeforeUpdateTableTags)) {
+            funBeforeUpdateTableTags(msg)
         }
     })
-    wsdc.on('afterUpdateTableTags', (msg) => {
+    instWConverClient.on('afterUpdateTableTags', (msg) => {
         // console.log('client: afterUpdateTableTags', msg)
-        if (isfun(cbAfterUpdateTableTags)) {
-            cbAfterUpdateTableTags(msg)
-        }
-    })
-    wsdc.on('beforePollingTableTags', () => {
-        // console.log('client: beforePollingTableTags')
-        if (isfun(cbBeforePollingTableTags)) {
-            cbBeforePollingTableTags()
-        }
-    })
-    wsdc.on('afterPollingTableTags', () => {
-        // console.log('client: afterPollingTableTags')
-        if (isfun(cbAfterPollingTableTags)) {
-            cbAfterPollingTableTags()
+        if (isfun(funAfterUpdateTableTags)) {
+            funAfterUpdateTableTags(msg)
         }
     })
 
-    //error
-    wsdc.on('error', (err) => {
-        ev.emit('error', err)
-    })
-
-    return ev
+    return instWConverClient
 }
 
 

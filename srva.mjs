@@ -18,21 +18,21 @@ async function run() {
     let tableNamesExec = ['tabA', 'tabB']
     let tableNamesSync = ['tabA']
 
-    //woItems
-    let woItems = {}
+    //kpOrm
+    let kpOrm = {}
     for (let k in tableNamesExec) {
         let v = tableNamesExec[k]
         let opt = { ...optWOrm, cl: v }
         let wo = new WOrm(opt)
-        woItems[v] = wo
+        kpOrm[v] = wo
     }
-    console.log('woItems', woItems)
+    // console.log('kpOrm', kpOrm)
 
     async function saveData(cl, r) {
 
         //w
-        let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件
-        console.log('cl=', cl, 'w=', w)
+        let w = kpOrm[cl] //一定要由kpOrm操作, 否則傳kpOrm進去WServWebdataServer會無法收到change事件
+        console.log('cl=', cl)
 
         //save
         await w.save(r, { autoInsert: true, atomic: true })
@@ -102,7 +102,7 @@ async function run() {
 
     let procCommon = async (userId, tableName, methodName, input) => {
         // console.log('procCommon call', tableName, methodName, input)
-        let r = await woItems[tableName][methodName](input)
+        let r = await kpOrm[tableName][methodName](input)
         // console.log('procCommon result', r)
         return r
     }
@@ -114,25 +114,22 @@ async function run() {
         return 'finish'
     }
 
-    let wsds = new WServWebdataServer({
-        instWConverServer: wsrv,
-        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
+    let wsds = new WServWebdataServer(wsrv, {
+        getUserIdByToken: async (token) => { //可使用async或sync函數
             return 'id-for-admin'
         },
-        dbORMs: woItems,
-        operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
+        kpOrm,
+        operOrm: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
         tableNamesExec,
         tableNamesSync,
-        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
+        kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
             uploadFile,
             // getUserFromID,
             // downloadFileFromID,
             // saveTableAndData,
             //...
         },
-        hookBefores: null,
-        hookAfters: null,
-        // fnTableTags: 'tableTags-serv-webdata.json',
+        // fpTableTags: 'tableTags-serv-webdata.json',
     })
 
     //error
@@ -158,4 +155,4 @@ run()
 // repeat...
 
 
-//node --experimental-modules --es-module-specifier-resolution=node srva.mjs
+//node --experimental-modules srva.mjs

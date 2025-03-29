@@ -15,19 +15,18 @@ async function run() {
         return `result: pa+pb=${pa + pb}`
     }
 
-    let wsds = new WServWebdataServer({
-        instWConverServer: wsrv,
-        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
-            return 'id-for-admin'
-        },
-        useDbORM: false, //不使用直接存取資料庫函數與自動同步資料庫至前端功能
-        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
-            execFunA,
-            //...
-        },
-        hookBefores: null,
-        hookAfters: null,
-    })
+    let wsds = new WServWebdataServer(
+        wsrv,
+        {
+            funGetUserIdByToken: async (token) => { //可使用async或sync函數
+                return 'id-for-admin'
+            },
+            useDbOrm: false, //不使用直接存取資料庫函數與自動同步資料庫至前端功能
+            kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
+                execFunA,
+                //...
+            },
+        })
 
     //error
     wsds.on('error', (err) => {
@@ -41,4 +40,4 @@ run()
     })
 
 
-//node --experimental-modules --es-module-specifier-resolution=node srvb.mjs
+//node --experimental-modules srvb.mjs

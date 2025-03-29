@@ -12,77 +12,72 @@ let wcc = WConverhpClient({
 })
 
 //wsdc
-let wsdc = WServWebdataClient({
-    instWConverClient: wcc,
-    cbGetToken: () => {
-        return '' //Vue.prototype.$store.state.userToken
-    },
-    cbGetServerMethods: (r) => {
-        console.log('cbGetServerMethods', r)
-        //Vue.prototype.$fapi = r
+let wsdc = WServWebdataClient(
+    wcc,
+    {
+        funGetToken: () => {
+            return '' //Vue.prototype.$store.state.userToken
+        },
+        funGetServerMethods: (r) => {
+            console.log('funGetServerMethods', r)
+            //Vue.prototype.$fapi = r
 
-        //select tabA
-        r.tabA.select(({ prog, p, m }) => {
-            console.log('select tabA', prog, p, m)
-        })
-            .then((res) => {
-                console.log('r.tabA.select then', res)
+            //select tabA
+            r.tabA.select(({ prog, p, m }) => {
+                console.log('select tabA', prog, p, m)
             })
-            .catch((err) => {
-                console.log('r.tabA.select catch', err)
+                .then((res) => {
+                    console.log('r.tabA.select then', res)
+                })
+                .catch((err) => {
+                    console.log('r.tabA.select catch', err)
+                })
+
+            //select tabB
+            r.tabB.select(({ prog, p, m }) => {
+                console.log('select tabB', prog, p, m)
+            })
+                .then((res) => {
+                    console.log('r.tabB.select then', res)
+                })
+                .catch((err) => {
+                    console.log('r.tabB.select catch', err)
+                })
+
+            //uploadFile
+            r.uploadFile({
+                name: 'zdata.b1',
+                u8a: new Uint8Array([66, 97, 115]),
+                // u8a: new Uint8Array(fs.readFileSync('../_data/500mb.7z')), //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
+            }, ({ prog, p, m }) => {
+                console.log('uploadFile', prog, p, m)
             })
 
-        //select tabB
-        r.tabB.select(({ prog, p, m }) => {
-            console.log('select tabB', prog, p, m)
-        })
-            .then((res) => {
-                console.log('r.tabB.select then', res)
-            })
-            .catch((err) => {
-                console.log('r.tabB.select catch', err)
-            })
-
-        //uploadFile
-        r.uploadFile({
-            name: 'zdata.b1',
-            u8a: new Uint8Array([66, 97, 115]),
-            // u8a: new Uint8Array(fs.readFileSync('../_data/500mb.7z')), //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
-        }, ({ prog, p, m }) => {
-            console.log('uploadFile', prog, p, m)
-        })
-
-    },
-    cbRecvData: (r) => {
-        console.log('cbRecvData', r)
-        //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
-    },
-    cbGetRefreshState: (r) => {
-        console.log('cbGetRefreshState', 'needToRefresh', r.needToRefresh)
-    },
-    cbGetRefreshTable: (r) => {
-        console.log('cbGetRefreshTable', 'tableName', r.tableName, 'timeTag', r.timeTag)
-    },
-    cbBeforeUpdateTableTags: (r) => {
-        console.log('cbBeforeUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))
-    },
-    cbAfterUpdateTableTags: (r) => {
-        console.log('cbAfterUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))
-    },
-    cbBeforePollingTableTags: () => {
-        console.log('cbBeforePollingTableTags')
-    },
-    cbAfterPollingTableTags: () => {
-        console.log('cbAfterPollingTableTags')
-    },
-})
+        },
+        funRecvData: (r) => {
+            console.log('funRecvData', r)
+            //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
+        },
+        funGetRefreshState: (r) => {
+            console.log('funGetRefreshState', 'needToRefresh', r.needToRefresh)
+        },
+        funGetRefreshTable: (r) => {
+            console.log('funGetRefreshTable', 'tableName', r.tableName, 'timeTag', r.timeTag)
+        },
+        funBeforeUpdateTableTags: (r) => {
+            console.log('funBeforeUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))
+        },
+        funAfterUpdateTableTags: (r) => {
+            console.log('funAfterUpdateTableTags', 'needToRefresh', JSON.stringify(r.oldTableTags) !== JSON.stringify(r.newTableTags))
+        },
+    })
 
 //error
 wsdc.on('error', (err) => {
     console.log('error', err)
 })
 
-// cbGetServerMethods {
+// funGetServerMethods {
 //   tabA: {
 //     select: [AsyncFunction: f],
 //     insert: [AsyncFunction: f],
@@ -107,10 +102,10 @@ wsdc.on('error', (err) => {
 //   { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },
 //   { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 // ]
-// cbBeforeUpdateTableTags needToRefresh true
-// cbGetRefreshState needToRefresh true
-// cbGetRefreshTable tableName tabA timeTag xzZGGa
-// cbRecvData {
+// funBeforeUpdateTableTags needToRefresh true
+// funGetRefreshState needToRefresh true
+// funGetRefreshTable tableName tabA timeTag xzZGGa
+// funRecvData {
 //   tableName: 'tabA',
 //   timeTag: 'xzZGGa',
 //   data: [
@@ -119,11 +114,11 @@ wsdc.on('error', (err) => {
 //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 //   ]
 // }
-// cbAfterUpdateTableTags needToRefresh false
-// cbBeforeUpdateTableTags needToRefresh true
-// cbGetRefreshState needToRefresh true
-// cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:46+08:00|MneMQH
-// cbRecvData {
+// funAfterUpdateTableTags needToRefresh false
+// funBeforeUpdateTableTags needToRefresh true
+// funGetRefreshState needToRefresh true
+// funGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:46+08:00|MneMQH
+// funRecvData {
 //   tableName: 'tabA',
 //   timeTag: '2022-03-02T16:40:46+08:00|MneMQH',
 //   data: [
@@ -132,11 +127,11 @@ wsdc.on('error', (err) => {
 //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 //   ]
 // }
-// cbAfterUpdateTableTags needToRefresh false
-// cbBeforeUpdateTableTags needToRefresh true
-// cbGetRefreshState needToRefresh true
-// cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:49+08:00|qzQJQ4
-// cbRecvData {
+// funAfterUpdateTableTags needToRefresh false
+// funBeforeUpdateTableTags needToRefresh true
+// funGetRefreshState needToRefresh true
+// funGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:49+08:00|qzQJQ4
+// funRecvData {
 //   tableName: 'tabA',
 //   timeTag: '2022-03-02T16:40:49+08:00|qzQJQ4',
 //   data: [
@@ -145,11 +140,11 @@ wsdc.on('error', (err) => {
 //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 //   ]
 // }
-// cbAfterUpdateTableTags needToRefresh false
-// cbBeforeUpdateTableTags needToRefresh true
-// cbGetRefreshState needToRefresh true
-// cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:52+08:00|Cnk33i
-// cbRecvData {
+// funAfterUpdateTableTags needToRefresh false
+// funBeforeUpdateTableTags needToRefresh true
+// funGetRefreshState needToRefresh true
+// funGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:52+08:00|Cnk33i
+// funRecvData {
 //   tableName: 'tabA',
 //   timeTag: '2022-03-02T16:40:52+08:00|Cnk33i',
 //   data: [
@@ -158,11 +153,11 @@ wsdc.on('error', (err) => {
 //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 //   ]
 // }
-// cbAfterUpdateTableTags needToRefresh false
-// cbBeforeUpdateTableTags needToRefresh true
-// cbGetRefreshState needToRefresh true
-// cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:55+08:00|wyFygc
-// cbRecvData {
+// funAfterUpdateTableTags needToRefresh false
+// funBeforeUpdateTableTags needToRefresh true
+// funGetRefreshState needToRefresh true
+// funGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:55+08:00|wyFygc
+// funRecvData {
 //   tableName: 'tabA',
 //   timeTag: '2022-03-02T16:40:55+08:00|wyFygc',
 //   data: [
@@ -171,11 +166,11 @@ wsdc.on('error', (err) => {
 //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 //   ]
 // }
-// cbAfterUpdateTableTags needToRefresh false
-// cbBeforeUpdateTableTags needToRefresh true
-// cbGetRefreshState needToRefresh true
-// cbGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:58+08:00|Bd82vG
-// cbRecvData {
+// funAfterUpdateTableTags needToRefresh false
+// funBeforeUpdateTableTags needToRefresh true
+// funGetRefreshState needToRefresh true
+// funGetRefreshTable tableName tabA timeTag 2022-03-02T16:40:58+08:00|Bd82vG
+// funRecvData {
 //   tableName: 'tabA',
 //   timeTag: '2022-03-02T16:40:58+08:00|Bd82vG',
 //   data: [
@@ -184,6 +179,6 @@ wsdc.on('error', (err) => {
 //     { id: 'id-tabA-rosemary', name: 'rosemary', value: 123.456 },    { id: 'id-tabA-kettle', name: 'kettle', value: 456 }
 //   ]
 // }
-// cbAfterUpdateTableTags needToRefresh false
+// funAfterUpdateTableTags needToRefresh false
 
-//node --experimental-modules --es-module-specifier-resolution=node scla.mjs
+//node --experimental-modules scla.mjs

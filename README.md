@@ -4,7 +4,6 @@ An operator for data control and synchronization between nodejs and browser.
 ![language](https://img.shields.io/badge/language-JavaScript-orange.svg) 
 [![npm version](http://img.shields.io/npm/v/w-serv-webdata.svg?style=flat)](https://npmjs.org/package/w-serv-webdata) 
 [![license](https://img.shields.io/npm/l/w-serv-webdata.svg?style=flat)](https://npmjs.org/package/w-serv-webdata) 
-[![gzip file size](http://img.badgesize.io/yuda-lyu/w-serv-webdata/master/dist/w-serv-webdata-server.umd.js.svg?compression=gzip)](https://github.com/yuda-lyu/w-serv-webdata)
 [![npm download](https://img.shields.io/npm/dt/w-serv-webdata.svg)](https://npmjs.org/package/w-serv-webdata) 
 [![npm download](https://img.shields.io/npm/dm/w-serv-webdata.svg)](https://npmjs.org/package/w-serv-webdata)
 [![jsdelivr download](https://img.shields.io/jsdelivr/npm/hm/w-serv-webdata.svg)](https://www.jsdelivr.com/package/npm/w-serv-webdata)
@@ -19,8 +18,6 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 ## Installation
 ### Using npm(ES6 module):
-> **Note:** `w-serv-webdata-server` and `w-serv-webdata-client` is mainly dependent on `lodash-es`, `w-sync-webdata` and `wsemi`.
-
 ```alias
 npm i w-serv-webdata
 ```
@@ -48,19 +45,19 @@ async function run() {
     let tableNamesExec = ['tabA', 'tabB']
     let tableNamesSync = ['tabA']
 
-    //woItems
-    let woItems = {}
+    //kpOrm
+    let kpOrm = {}
     for (let k in tableNamesExec) {
         let v = tableNamesExec[k]
         let opt = { ...optWOrm, cl: v }
         let wo = new WOrm(opt)
-        woItems[v] = wo
+        kpOrm[v] = wo
     }
 
     async function saveData(cl, r) {
 
         //w
-        let w = woItems[cl] //一定要由woItems操作, 否則傳woItems進去WServWebdataServer會無法收到change事件
+        let w = kpOrm[cl] //一定要由kpOrm操作, 否則傳kpOrm進去WServWebdataServer會無法收到change事件
 
         //save
         await w.save(r, { atomic: true }) //autoInsert: false
@@ -127,7 +124,7 @@ async function run() {
 
     let procCommon = async (userId, tableName, methodName, input) => {
         // console.log('procCommon call', tableName, methodName, input)
-        let r = await woItems[tableName][methodName](input)
+        let r = await kpOrm[tableName][methodName](input)
         // console.log('procCommon result', r)
         return r
     }
@@ -141,14 +138,14 @@ async function run() {
 
     let wsds = new WServWebdataServer({
         instWConverServer: wsrv,
-        cbGetUserIDFromToken: async (token) => { //可使用async或sync函數
+        funGetUserIdByToken: async (token) => { //可使用async或sync函數
             return 'id-for-admin'
         },
-        dbORMs: woItems,
+        kpOrm,
         operORM: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
         tableNamesExec,
         tableNamesSync,
-        extFuncs: { //接收參數第1個為userId, 之後才是前端給予參數
+        kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
             uploadFile,
             // getUserFromID,
             // downloadFileFromID,
@@ -157,7 +154,7 @@ async function run() {
         },
         hookBefores: null,
         hookAfters: null,
-        // fnTableTags: 'tableTags-serv-webdata.json',
+        // fpTableTags: 'tableTags-serv-webdata.json',
     })
 
     //error
@@ -374,14 +371,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.32/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.33/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/weba.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.32/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.33/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']
