@@ -1,6 +1,6 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
     "lodash-es": "^4.17.21",
@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "form-data": "^4.0.2",
-    "w-converhp": "^2.0.2",
+    "w-converhp": "^2.0.3",
     "w-orm-mongodb": "^1.1.32",
     "w-package-tools": "^1.0.82"
   },
