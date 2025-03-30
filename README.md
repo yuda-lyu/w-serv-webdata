@@ -188,13 +188,13 @@ import WServWebdataClient from './src/WServWebdataClient.mjs'
 
 
 //wcc
-let wcc = WConverhpClient({
+let wcc = new WConverhpClient({
     //url: window.location.origin + window.location.pathname,
     url: 'http://localhost:9000',
 })
 
 //wsdc
-let wsdc = WServWebdataClient({
+let wsdc = new WServWebdataClient({
     instWConverClient: wcc,
     cbGetToken: () => {
         return '' //Vue.prototype.$store.state.userToken
@@ -371,14 +371,14 @@ wsdc.on('error', (err) => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.36/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.37/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/weba.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.36/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.37/dist/w-serv-webdata-client.umd.js"></script>
 
 //wcc
 let WConverhpClient = window['w-converhp-client']
@@ -388,7 +388,7 @@ let wcc = new WConverhpClient({
 
 //wsdc
 let WServWebdataClient = window['w-serv-webdata-client']
-let wsdc = WServWebdataClient({
+let wsdc = new WServWebdataClient({
     instWConverClient: wcc,
     cbGetToken: function() {
         return '' //Vue.prototype.$store.state.token

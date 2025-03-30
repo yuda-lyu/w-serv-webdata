@@ -5,14 +5,14 @@ import WServWebdataClient from './src/WServWebdataClient.mjs'
 
 
 //wcc
-let wcc = WConverhpClient({
+let wcc = new WConverhpClient({
     FormData, //w-converhp的WConverhpClient, 於nodejs使用FormData需安裝套件並提供, 於browser就使用內建FormData故可不用給予
     //url: window.location.origin + window.location.pathname,
     url: 'http://localhost:9000',
 })
 
 //wsdc
-let wsdc = WServWebdataClient(
+let wsdc = new WServWebdataClient(
     wcc,
     {
         funGetToken: () => {

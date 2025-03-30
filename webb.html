@@ -37,7 +37,7 @@
             //wsdc
             let WServWebdataClient = window['w-serv-webdata-client']
             let $fapi = null
-            let wsdc = WServWebdataClient({
+            let wsdc = new WServWebdataClient({
                 instWConverClient: wcc,
                 cbGetToken: () => {
                     return '' //Vue.prototype.$store.state.token
