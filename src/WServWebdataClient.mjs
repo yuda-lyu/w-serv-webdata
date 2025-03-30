@@ -20,7 +20,6 @@ import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
  * @class
  * @param {Object} instWConverClient 輸入通訊服務實體物件，可使用例如WConverhpClient等建立
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {Object} opt.instWConverClient 輸入通訊服務實體物件，可使用例如WConverhpClient等建立
  * @param {Function} [opt.funGetToken=()=>''] 輸入取得使用者token的回調函數，預設()=>''
  * @param {Function} opt.funGetServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將放入物件當中，key為函數名而值為函數，並通過回調函數提供該物件
  * @param {Function} opt.funRecvData 輸入取得變更表資料的回調函數
