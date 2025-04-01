@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-tw">
+
+    <head>
+        <meta http-equiv="content-type" content="text/html charset=UTF-8" />
+        <title>w-serv-webdata</title>
+
+        <!-- @babel/polyfill已廢棄 -->
+        <script nomodule src="https://cdn.jsdelivr.net/npm/@babel/polyfill@7.12.1/dist/polyfill.min.js"></script>
+        
+        <script src="https://cdn.jsdelivr.net/npm/wsemi/dist/wsemi.umd.js"></script>
+        
+        <!-- 因直接引用w-converhp-client.umd.js故為已編譯版本, 通過解構運算子不會有問題 -->
+        <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
+
+        <script src="dist/w-serv-webdata-client.umd.js"></script>
+
+        <script src="https://cdn.jsdelivr.net/npm/w-consolelog/dist/w-consolelog.umd.js"></script>
+        <script>
+            // let log = console.log
+            //可能上傳大檔案w-consolelog會處理太久
+            // console.log = function(){
+            //     log.apply(null, arguments)
+            //     window['w-consolelog'].apply(null, arguments)
+            // }
+        </script>
+        
+        <script>
+
+            let ms = []
+
+            //instWConverClient
+            let WConverhpClient = window['w-converhp-client']
+
+            //instWConverClient
+            let WServWebdataClient = window['w-serv-webdata-client']
+            
+            let instWConverClient = new WConverhpClient({
+                // FormData,
+                url: 'http://localhost:9000',
+            })
+
+            instWConverClient = new WServWebdataClient(
+                instWConverClient,
+                {
+                    getToken: () => {
+                        return '' //Vue.prototype.$store.state.token
+                    },
+                    getServerMethods: (r) => {
+                        console.log('getServerMethods', r)
+                        //Vue.prototype.$fapi = r
+                            
+                        //$fapi
+                        let $fapi = r
+
+                        let core = async() => {
+
+                            //select tabA
+                            await $fapi.tabA.select(({ prog, p, m }) => {
+                                console.log('select tabA', prog, p, m)
+                            })
+                                .then((res) => {
+                                    console.log('tabA.select then', res)
+                                    ms.push({ 'select tabA': JSON.stringify(res) })
+                                })
+                                .catch((err) => {
+                                    console.log('tabA.select catch', err)
+                                })
+
+                            //select tabB
+                            await $fapi.tabB.select(({ prog, p, m }) => {
+                                console.log('select tabB', prog, p, m)
+                            })
+                                .then((res) => {
+                                    console.log('tabB.select then', res)
+                                    ms.push({ 'select tabB': JSON.stringify(res) })
+                                })
+                                .catch((err) => {
+                                    console.log('tabB.select catch', err)
+                                })
+
+                            //add
+                            ms.push({ 'call add before': '' })
+                            await $fapi.add({
+                                pa: 1,
+                                pb: 2.5,
+                            }, ({ prog, p, m }) => {
+                                console.log('add', prog, p, m)
+                            })
+                                .then((res) => {
+                                    console.log('add then', res)
+                                    ms.push({ 'call add after': res })
+                                })
+                                .catch((err) => {
+                                    console.log('add catch', err)
+                                })
+
+                            //uploadFile
+                            ms.push({ 'call uploadFile before': '' })
+                            await $fapi.uploadFile({
+                                name: 'zdata.b1',
+                                u8a: new Uint8Array([66, 97, 115]),
+                            }, ({ prog, p, m }) => {
+                                console.log('uploadFile', prog, p, m)
+                            })
+                                .then((res) => {
+                                    console.log('uploadFile then', res)
+                                    ms.push({ 'call uploadFile after': res })
+                                })
+                                .catch((err) => {
+                                    console.log('uploadFile catch', err)
+                                })
+
+                        }
+                        core()
+                            .catch(() => {})
+
+                    },
+                    recvData: (r) => {
+                        console.log('sync data', r)
+                        //Vue.prototype.$store.commit(Vue.prototype.$store.types.UpdateTableData, r)
+                    },
+                }
+            )
+
+            //error
+            instWConverClient.on('error', function(err) {
+                console.log('error', err)
+            })
+
+            //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
+            setTimeout(() => {
+                instWConverClient.clearBroadcast()
+                console.log('ms', ms)
+            }, 14000)
+            // => ms [
+            //   {
+            //     'select tabA': '[{"id":"id-tabA-peter","name":"peter","value":123},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]'
+            //   },
+            //   {
+            //     'select tabB': '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]'
+            //   },
+            //   { 'call add before': '' },
+            //   { 'call add after': 3.5 },
+            //   { 'call uploadFile before': '' },
+            //   { 'call uploadFile after': { name: 'zdata.b1', size: 3 } }
+            // ]
+
+        </script>
+
+        <script>
+            
+            function uploadFile() {
+
+                wsemi.domShowInputAndGetFiles()
+                    .then(function(msg){
+                        console.log('domShowInputAndGetFiles msg',msg)
+
+                        //check
+                        if(Object.keys(msg.errs).length > 0){
+                            console.log('errs',msg.errs)
+                            return
+                        }
+
+                        //file
+                        let file = msg.files[0]
+                        console.log('file',file)
+
+                        //blob2ab
+                        wsemi.blob2ab(file)
+                            .then(function(ab){
+
+                                //uploadFile
+                                $fapi.uploadFile({
+                                    name: file.name,
+                                    // u8a: new Uint8Array([66, 97, 115]),
+                                    u8a: ab, //最多500mb, 因測試使用w-converhp, 其依賴新版@hapi/pez無法處理1g檔案, 會出現: Invalid string length
+                                }, ({ prog, p, m }) => {
+                                    console.log('uploadFile', prog, p, m)
+                                })
+
+                            })
+
+                    })
+
+                }
+
+        </script>
+
+    </head>
+
+    <body>
+        
+        <div>
+    
+            <button onclick="uploadFile()">upload file</button>
+        
+        </div>
+        
+    </body>
+
+</html>

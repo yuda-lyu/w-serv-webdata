@@ -1,10 +1,10 @@
 import get from 'lodash-es/get.js'
+import evem from 'wsemi/src/evem.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
-import evem from 'wsemi/src/evem.mjs'
 import WSyncWebdataServer from 'w-sync-webdata/src/WSyncWebdataServer.mjs'
 import WServBroadcastServer from 'w-serv-broadcast/src/WServBroadcastServer.mjs'
 import pickTables from './pickTables.mjs'
@@ -24,163 +24,281 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @param {Array} [opt.tableNamesExec=[]] 輸入指定能被操作的表名陣列，預設[]
  * @param {Array} [opt.tableNamesSync=[]] 輸入指定能被同步的表名陣列，預設[]
  * @param {Array} [opt.methodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
- * @param {Function} [opt.getUserIdByToken=async ()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設async ()=>''
+ * @param {Function} [opt.getUserIdByToken=async()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設async()=>''
  * @param {Object} [opt.kpFunExt=null] 輸入額外擴充執行函數物件，key為函數名而值為函數，預設null
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
+ * import _ from 'lodash-es'
  * import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
  * import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
  * import WServWebdataServer from './src/WServWebdataServer.mjs'
  *
- * async function run() {
+ * let ms = []
  *
- *     //optWOrm
- *     let optWOrm = {
- *         url: 'mongodb://username:password@127.0.0.1:27017',
- *         db: 'servdata',
- *         cl: '',
- *     }
+ * //optWOrm
+ * let optWOrm = {
+ *     url: 'mongodb://username:password@127.0.0.1:27017',
+ *     db: 'servdata',
+ *     cl: '',
+ * }
  *
- *     //tableNamesExec, tableNamesSync
- *     let tableNamesExec = ['tabA', 'tabB']
- *     let tableNamesSync = ['tabA']
+ * //tableNamesExec, tableNamesSync
+ * let tableNamesExec = ['tabA', 'tabB']
+ * let tableNamesSync = ['tabA']
  *
- *     //kpOrm
- *     let kpOrm = {}
- *     for (let k in tableNamesExec) {
- *         let v = tableNamesExec[k]
- *         let opt = { ...optWOrm, cl: v }
- *         let wo = new WOrm(opt)
- *         kpOrm[v] = wo
- *     }
- *     // console.log('kpOrm', kpOrm)
+ * //kpOrm
+ * let kpOrm = {}
+ * for (let k in tableNamesExec) {
+ *     let v = tableNamesExec[k]
+ *     let opt = { ...optWOrm, cl: v }
+ *     let wo = new WOrm(opt)
+ *     kpOrm[v] = wo
+ * }
+ * // console.log('kpOrm', kpOrm)
  *
- *     async function saveData(cl, r) {
+ * //saveData
+ * let saveData = async(cl, r) => {
  *
- *         //w
- *         let w = kpOrm[cl] //一定要由kpOrm操作, 否則傳kpOrm進去WServWebdataServer會無法收到change事件
- *         console.log('cl=', cl)
+ *     //w
+ *     let w = kpOrm[cl] //一定要由kpOrm操作, 否則傳kpOrm進去WServWebdataServer會無法收到change事件
+ *     console.log('saveData cl', cl, r)
+ *     ms.push({ 'saveData before': { cl, data: JSON.stringify(r) } })
  *
- *         //save
- *         await w.save(r, { autoInsert: true, atomic: true })
- *             .then(function(msg) {
- *                 console.log('save then', cl, msg)
- *             })
- *             .catch(function(msg) {
- *                 console.log('save catch', cl, msg)
- *             })
- *
- *     }
- *
- *     let r
- *     r = [
- *         {
- *             id: 'id-tabA-peter',
- *             name: 'peter',
- *             value: 123,
- *         },
- *         {
- *             id: 'id-tabA-rosemary',
- *             name: 'rosemary',
- *             value: 123.456,
- *         },
- *         {
- *             id: 'id-tabA-kettle',
- *             name: 'kettle',
- *             value: 456,
- *         },
- *     ]
- *     console.log('saveData tabA before')
- *     await saveData('tabA', r)
- *     console.log('saveData tabA after')
- *     r = [
- *         {
- *             id: 'id-tabB-peter',
- *             name: 'peter',
- *             value: 123,
- *         },
- *         {
- *             id: 'id-tabB-rosemary',
- *             name: 'rosemary',
- *             value: 123.456,
- *         },
- *     ]
- *     await saveData('tabB', r)
- *     console.log('saveData tabB')
- *
- *     let n = 0
- *     let tn = setInterval(() => {
- *         n++
- *         console.log('update tabA', n)
- *         r = {
- *             id: 'id-tabA-peter',
- *             name: 'peter',
- *             value: Math.random(),
- *         }
- *         saveData('tabA', r)
- *         if (n >= 5) {
- *             clearInterval(tn)
- *         }
- *     }, 3000)
- *
- *     let wsrv = new WConverhpServer({
- *         port: 9000,
- *     })
- *
- *     let procCommon = async (userId, tableName, methodName, input) => {
- *         // console.log('procCommon call', tableName, methodName, input)
- *         let r = await kpOrm[tableName][methodName](input)
- *         // console.log('procCommon result', r)
- *         return r
- *     }
- *
- *     let uploadFile = async (userId, { name, u8a }) => {
- *         console.log('uploadFile', userId, name, _.size(u8a))
- *         fs.writeFileSync(name, Buffer.from(u8a))
- *         console.log('uploadFile writeFileSync finish')
- *         return 'finish'
- *     }
- *
- *     let wsds = new WServWebdataServer(wsrv, {
- *         getUserIdByToken: async (token) => { //可使用async或sync函數
- *             return 'id-for-admin'
- *         },
- *         kpOrm,
- *         operOrm: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
- *         tableNamesExec,
- *         tableNamesSync,
- *         kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
- *             uploadFile,
- *             // getUserFromID,
- *             // downloadFileFromID,
- *             // saveTableAndData,
- *             //...
- *         },
- *         // fpTableTags: 'tableTags-serv-webdata.json',
- *     })
- *
- *     //error
- *     wsds.on('error', (err) => {
- *         console.log('error', err)
- *     })
+ *     //save
+ *     await w.save(r, { autoInsert: true })
+ *         .then(function(msg) {
+ *             console.log('save then', cl, msg)
+ *             ms.push({ 'saveData after': { cl, data: JSON.stringify(msg) } })
+ *         })
+ *         .catch(function(err) {
+ *             console.log('save catch', cl, err)
+ *         })
  *
  * }
- * run()
- *     .catch((err) => {
- *         console.log(err)
- *     })
  *
- * // save then tabA [
- * //     { n: 1, nModified: 1, ok: 1 },
- * //     { n: 1, nModified: 1, ok: 1 },
- * //     { n: 1, nModified: 1, ok: 1 }
+ * let r
+ *
+ * r = [
+ *     {
+ *         id: 'id-tabA-peter',
+ *         name: 'peter',
+ *         value: 123,
+ *     },
+ *     {
+ *         id: 'id-tabA-rosemary',
+ *         name: 'rosemary',
+ *         value: 123.456,
+ *     },
+ *     {
+ *         id: 'id-tabA-kettle',
+ *         name: 'kettle',
+ *         value: 456,
+ *     },
+ * ]
+ *
+ * await saveData('tabA', r)
+ * console.log('saveData tabA')
+ *
+ * r = [
+ *     {
+ *         id: 'id-tabB-peter',
+ *         name: 'peter',
+ *         value: 123,
+ *     },
+ *     {
+ *         id: 'id-tabB-rosemary',
+ *         name: 'rosemary',
+ *         value: 123.456,
+ *     },
+ * ]
+ *
+ * await saveData('tabB', r)
+ * console.log('saveData tabB')
+ *
+ * let n = 0
+ * let t = setInterval(async () => {
+ *     n++
+ *     console.log('update tabA', n)
+ *     r = {
+ *         id: 'id-tabA-peter',
+ *         name: 'peter',
+ *         value: `peter-n[${n}]`,
+ *     }
+ *     ms.push({ 'timer update tabA before': n, r })
+ *     await saveData('tabA', r)
+ *     ms.push({ 'timer update tabA after': n, r })
+ *     if (n >= 5) {
+ *         clearInterval(t)
+ *     }
+ * }, 2000)
+ *
+ * let instWConverServer = new WConverhpServer({
+ *     port: 9000,
+ * })
+ *
+ * let procCommon = async (userId, tableName, methodName, input) => {
+ *     // console.log('procCommon call', tableName, methodName, input)
+ *     let r = await kpOrm[tableName][methodName](input)
+ *     // console.log('procCommon result', r)
+ *     return r
+ * }
+ *
+ * let uploadFile = async (userId, { name, u8a }) => {
+ *     console.log('uploadFile', userId, name, _.size(u8a))
+ *     ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })
+ *     // fs.writeFileSync(name, Buffer.from(u8a))
+ *     ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })
+ *     console.log('uploadFile writeFileSync finish')
+ *     return { name, size: _.size(u8a) }
+ * }
+ *
+ * instWConverServer = new WServWebdataServer(instWConverServer, {
+ *     getUserIdByToken: async (token) => { //可使用async或sync函數
+ *         return 'id-for-admin'
+ *     },
+ *     kpOrm,
+ *     operOrm: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
+ *     tableNamesExec,
+ *     tableNamesSync,
+ *     kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
+ *         uploadFile,
+ *         add: (userId, input) => {
+ *             console.log('add', input)
+ *             let r = input.pa + input.pb
+ *             ms.push({ 'kpFunExt add': { input: JSON.stringify(input), output: JSON.stringify(r) } })
+ *             return r
+ *         },
+ *         //...
+ *     },
+ *     // fpTableTags: 'tableTags-serv-webdata.json',
+ * })
+ *
+ * //error
+ * instWConverServer.on('error', (err) => {
+ *     console.log('error', err)
+ * })
+ *
+ * //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
+ * setTimeout(() => {
+ *     instWConverServer.clearBroadcast()
+ *     instWConverServer.stop()
+ *     console.log('ms', ms)
+ * }, 114000)
+ * // => ms [
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabA',
+ * //       data: '[{"id":"id-tabA-peter","name":"peter","value":123},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': {
+ * //       cl: 'tabA',
+ * //       data: '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabB',
+ * //       data: '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': {
+ * //       cl: 'tabB',
+ * //       data: '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]'
+ * //     }
+ * //   },
+ * //   { 'kpFunExt add': { input: '{"pa":1,"pb":2.5}', output: '3.5' } },
+ * //   { 'uploadFile before': { name: 'zdata.b1', size: 3 } },
+ * //   { 'uploadFile after': { name: 'zdata.b1', size: 3 } },
+ * //   {
+ * //     'timer update tabA before': 1,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }
+ * //   },
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabA',
+ * //       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"}'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA after': 1,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA before': 2,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[2]' }
+ * //   },
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabA',
+ * //       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[2]"}'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA after': 2,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[2]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA before': 3,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[3]' }
+ * //   },
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabA',
+ * //       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[3]"}'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA after': 3,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[3]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA before': 4,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[4]' }
+ * //   },
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabA',
+ * //       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[4]"}'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA after': 4,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[4]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA before': 5,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[5]' }
+ * //   },
+ * //   {
+ * //     'saveData before': {
+ * //       cl: 'tabA',
+ * //       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[5]"}'
+ * //     }
+ * //   },
+ * //   {
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //   },
+ * //   {
+ * //     'timer update tabA after': 5,
+ * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[5]' }
+ * //   }
  * // ]
- * // save then tabB [ { n: 1, nModified: 1, ok: 1 }, { n: 1, nModified: 1, ok: 1 } ]
- * // Server running at: http://localhost:9000
- * // update tabA
- * // save then tabA [ { n: 1, nModified: 1, ok: 1 } ]
- * // repeat...
  *
  */
 function WServWebdataServer(instWConverServer, opt = {}) {
