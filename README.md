@@ -25,16 +25,23 @@ npm i w-serv-webdata
 #### Example for w-serv-webdata-server:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/srv.mjs)]
 ```alias
+// import fs from 'fs'
 import _ from 'lodash-es'
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
-import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
+// import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選擇引用ORM
+import WOrm from 'w-orm-lowdb/src/WOrmLowdb.mjs' //自行選擇引用ORM
 import WServWebdataServer from './src/WServWebdataServer.mjs'
 
 let ms = []
 
+//預先刪除w-orm-lowdb資料庫
+fs.unlinkSync('./db.json')
+
 //optWOrm
 let optWOrm = {
-    url: 'mongodb://username:password@127.0.0.1:27017',
+    // url: 'mongodb://username:password@127.0.0.1:27017',
+    // db: 'servdata',
+    url: './db.json',
     db: 'servdata',
     cl: '',
 }
@@ -180,7 +187,7 @@ setTimeout(() => {
     instWConverServer.clearBroadcast()
     instWConverServer.stop()
     console.log('ms', ms)
-}, 114000)
+}, 14000)
 // => ms [
 //   {
 //     'saveData before': {
@@ -191,7 +198,7 @@ setTimeout(() => {
 //   {
 //     'saveData after': {
 //       cl: 'tabA',
-//       data: '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]'
+//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
 //     }
 //   },
 //   {
@@ -203,12 +210,9 @@ setTimeout(() => {
 //   {
 //     'saveData after': {
 //       cl: 'tabB',
-//       data: '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]'
+//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
 //     }
 //   },
-//   { 'kpFunExt add': { input: '{"pa":1,"pb":2.5}', output: '3.5' } },
-//   { 'uploadFile before': { name: 'zdata.b1', size: 3 } },
-//   { 'uploadFile after': { name: 'zdata.b1', size: 3 } },
 //   {
 //     'timer update tabA before': 1,
 //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }
@@ -437,14 +441,14 @@ setTimeout(() => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.39/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.40/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.39/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.40/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

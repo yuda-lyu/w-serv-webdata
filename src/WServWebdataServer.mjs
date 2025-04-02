@@ -29,16 +29,23 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
+ * // import fs from 'fs'
  * import _ from 'lodash-es'
  * import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
- * import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
+ * // import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選擇引用ORM
+ * import WOrm from 'w-orm-lowdb/src/WOrmLowdb.mjs' //自行選擇引用ORM
  * import WServWebdataServer from './src/WServWebdataServer.mjs'
  *
  * let ms = []
  *
+ * //預先刪除w-orm-lowdb資料庫
+ * fs.unlinkSync('./db.json')
+ *
  * //optWOrm
  * let optWOrm = {
- *     url: 'mongodb://username:password@127.0.0.1:27017',
+ *     // url: 'mongodb://username:password@127.0.0.1:27017',
+ *     // db: 'servdata',
+ *     url: './db.json',
  *     db: 'servdata',
  *     cl: '',
  * }
@@ -184,7 +191,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  *     instWConverServer.clearBroadcast()
  *     instWConverServer.stop()
  *     console.log('ms', ms)
- * }, 114000)
+ * }, 14000)
  * // => ms [
  * //   {
  * //     'saveData before': {
@@ -195,7 +202,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //   {
  * //     'saveData after': {
  * //       cl: 'tabA',
- * //       data: '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]'
+ * //       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
  * //     }
  * //   },
  * //   {
@@ -207,12 +214,9 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //   {
  * //     'saveData after': {
  * //       cl: 'tabB',
- * //       data: '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]'
+ * //       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
  * //     }
  * //   },
- * //   { 'kpFunExt add': { input: '{"pa":1,"pb":2.5}', output: '3.5' } },
- * //   { 'uploadFile before': { name: 'zdata.b1', size: 3 } },
- * //   { 'uploadFile after': { name: 'zdata.b1', size: 3 } },
  * //   {
  * //     'timer update tabA before': 1,
  * //     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }

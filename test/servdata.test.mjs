@@ -4,7 +4,8 @@ import _ from 'lodash-es'
 import w from 'wsemi'
 import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs'
-import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選用ORM, 此處用mongodb示範
+// import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選擇引用ORM
+import WOrm from 'w-orm-lowdb/src/WOrmLowdb.mjs' //自行選擇引用ORM
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
 
@@ -17,9 +18,14 @@ describe('servdata', function() {
 
         let ms = []
 
+        //預先刪除w-orm-lowdb資料庫
+        fs.unlinkSync('./db.json')
+
         //optWOrm
         let optWOrm = {
-            url: 'mongodb://username:password@127.0.0.1:27017',
+            // url: 'mongodb://username:password@127.0.0.1:27017',
+            // db: 'servdata',
+            url: './db.json',
             db: 'servdata',
             cl: '',
         }
@@ -296,13 +302,13 @@ describe('servdata', function() {
         runClient()
         setTimeout(() => {
             // console.log('msAll', JSON.stringify(msAll))
-            fs.writeFileSync('./test_servdata.json', JSON.stringify(msAll), 'utf8')
+            // fs.writeFileSync('./test_servdata.json', JSON.stringify(msAll), 'utf8')
             pm.resolve(msAll)
         }, 15000)
         return pm
     }
 
-    let res = [{ 'client': [{ 'select tabA': '[{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]' }, { 'select tabB': '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]' }, { 'call add before': '' }, { 'call add after': 3.5 }, { 'call uploadFile before': '' }, { 'call uploadFile after': { 'name': 'zdata.b1', 'size': 3 } }] }, { 'server': [{ 'saveData before': { 'cl': 'tabA', 'data': '[{"id":"id-tabA-peter","name":"peter","value":123},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]' } }, { 'saveData before': { 'cl': 'tabB', 'data': '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]' } }, { 'saveData after': { 'cl': 'tabB', 'data': '[{"n":1,"nModified":1,"ok":1},{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA before': 1, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[1]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 1, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[1]' } }, { 'kpFunExt add': { 'input': '{"pa":1,"pb":2.5}', 'output': '3.5' } }, { 'uploadFile before': { 'name': 'zdata.b1', 'size': 3 } }, { 'uploadFile after': { 'name': 'zdata.b1', 'size': 3 } }, { 'timer update tabA before': 2, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[2]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[2]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 2, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[2]' } }, { 'timer update tabA before': 3, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[3]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[3]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 3, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[3]' } }, { 'timer update tabA before': 4, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[4]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[4]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 4, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[4]' } }, { 'timer update tabA before': 5, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[5]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[5]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 5, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[5]' } }] }]
+    let res = [{ 'client': [{ 'select tabA': '[{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]' }, { 'select tabB': '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]' }, { 'call add before': '' }, { 'call add after': 3.5 }, { 'call uploadFile before': '' }, { 'call uploadFile after': { 'name': 'zdata.b1', 'size': 3 } }] }, { 'server': [{ 'saveData before': { 'cl': 'tabA', 'data': '[{"id":"id-tabA-peter","name":"peter","value":123},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]' } }, { 'saveData before': { 'cl': 'tabB', 'data': '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]' } }, { 'saveData after': { 'cl': 'tabB', 'data': '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]' } }, { 'timer update tabA before': 1, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[1]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 1, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[1]' } }, { 'kpFunExt add': { 'input': '{"pa":1,"pb":2.5}', 'output': '3.5' } }, { 'uploadFile before': { 'name': 'zdata.b1', 'size': 3 } }, { 'uploadFile after': { 'name': 'zdata.b1', 'size': 3 } }, { 'timer update tabA before': 2, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[2]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[2]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 2, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[2]' } }, { 'timer update tabA before': 3, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[3]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[3]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 3, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[3]' } }, { 'timer update tabA before': 4, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[4]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[4]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 4, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[4]' } }, { 'timer update tabA before': 5, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[5]' } }, { 'saveData before': { 'cl': 'tabA', 'data': '{"id":"id-tabA-peter","name":"peter","value":"peter-n[5]"}' } }, { 'saveData after': { 'cl': 'tabA', 'data': '[{"n":1,"nModified":1,"ok":1}]' } }, { 'timer update tabA after': 5, 'r': { 'id': 'id-tabA-peter', 'name': 'peter', 'value': 'peter-n[5]' } }] }]
     it(`should return ${res} when test`, async function() {
         let r = await run()
         let rr = res
