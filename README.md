@@ -35,7 +35,10 @@ import WServWebdataServer from './src/WServWebdataServer.mjs'
 let ms = []
 
 //預先刪除w-orm-lowdb資料庫
-fs.unlinkSync('./db.json')
+try {
+    fs.unlinkSync('./db.json')
+}
+catch (err) {}
 
 //optWOrm
 let optWOrm = {
