@@ -80,7 +80,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line308">line 308</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line316">line 316</a>
     </li></ul></dd>
     
 
@@ -127,7 +127,7 @@
 
     <h5 class="h5-examples">Example</h5>
     
-    <pre class="prettyprint"><code>// import fs from 'fs'import _ from 'lodash-es'import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'// import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選擇引用ORMimport WOrm from 'w-orm-lowdb/src/WOrmLowdb.mjs' //自行選擇引用ORMimport WServWebdataServer from './src/WServWebdataServer.mjs'let ms = []//預先刪除w-orm-lowdb資料庫fs.unlinkSync('./db.json')//optWOrmlet optWOrm = {    // url: 'mongodb://username:password@127.0.0.1:27017',    // db: 'servdata',    url: './db.json',    db: 'servdata',    cl: '',}//tableNamesExec, tableNamesSynclet tableNamesExec = ['tabA', 'tabB']let tableNamesSync = ['tabA']//kpOrmlet kpOrm = {}for (let k in tableNamesExec) {    let v = tableNamesExec[k]    let opt = { ...optWOrm, cl: v }    let wo = new WOrm(opt)    kpOrm[v] = wo}// console.log('kpOrm', kpOrm)//saveDatalet saveData = async(cl, r) => {    //w    let w = kpOrm[cl] //一定要由kpOrm操作, 否則傳kpOrm進去WServWebdataServer會無法收到change事件    console.log('saveData cl', cl, r)    ms.push({ 'saveData before': { cl, data: JSON.stringify(r) } })    //save    await w.save(r, { autoInsert: true })        .then(function(msg) {            console.log('save then', cl, msg)            ms.push({ 'saveData after': { cl, data: JSON.stringify(msg) } })        })        .catch(function(err) {            console.log('save catch', cl, err)        })}let rr = [    {        id: 'id-tabA-peter',        name: 'peter',        value: 123,    },    {        id: 'id-tabA-rosemary',        name: 'rosemary',        value: 123.456,    },    {        id: 'id-tabA-kettle',        name: 'kettle',        value: 456,    },]await saveData('tabA', r)console.log('saveData tabA')r = [    {        id: 'id-tabB-peter',        name: 'peter',        value: 123,    },    {        id: 'id-tabB-rosemary',        name: 'rosemary',        value: 123.456,    },]await saveData('tabB', r)console.log('saveData tabB')let n = 0let t = setInterval(async () => {    n++    console.log('update tabA', n)    r = {        id: 'id-tabA-peter',        name: 'peter',        value: `peter-n[${n}]`,    }    ms.push({ 'timer update tabA before': n, r })    await saveData('tabA', r)    ms.push({ 'timer update tabA after': n, r })    if (n >= 5) {        clearInterval(t)    }}, 2000)let instWConverServer = new WConverhpServer({    port: 9000,})let procCommon = async (userId, tableName, methodName, input) => {    // console.log('procCommon call', tableName, methodName, input)    let r = await kpOrm[tableName][methodName](input)    // console.log('procCommon result', r)    return r}let uploadFile = async (userId, { name, u8a }) => {    console.log('uploadFile', userId, name, _.size(u8a))    ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })    // fs.writeFileSync(name, Buffer.from(u8a))    ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })    console.log('uploadFile writeFileSync finish')    return { name, size: _.size(u8a) }}instWConverServer = new WServWebdataServer(instWConverServer, {    getUserIdByToken: async (token) => { //可使用async或sync函數        return 'id-for-admin'    },    kpOrm,    operOrm: procCommon, //procCommon的輸入為: userId, tableName, methodName, input    tableNamesExec,    tableNamesSync,    kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數        uploadFile,        add: (userId, input) => {            console.log('add', input)            let r = input.pa + input.pb            ms.push({ 'kpFunExt add': { input: JSON.stringify(input), output: JSON.stringify(r) } })            return r        },        //...    },    // fpTableTags: 'tableTags-serv-webdata.json',})//errorinstWConverServer.on('error', (err) => {    console.log('error', err)})//sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stopsetTimeout(() => {    instWConverServer.clearBroadcast()    instWConverServer.stop()    console.log('ms', ms)}, 14000)// => ms [//   {//     'saveData before': {//       cl: 'tabA',//       data: '[{"id":"id-tabA-peter","name":"peter","value":123},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]'//     }//   },//   {//     'saveData after': {//       cl: 'tabA',//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'//     }//   },//   {//     'saveData before': {//       cl: 'tabB',//       data: '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]'//     }//   },//   {//     'saveData after': {//       cl: 'tabB',//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'//     }//   },//   {//     'timer update tabA before': 1,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 1,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }//   },//   {//     'timer update tabA before': 2,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[2]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[2]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 2,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[2]' }//   },//   {//     'timer update tabA before': 3,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[3]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[3]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 3,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[3]' }//   },//   {//     'timer update tabA before': 4,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[4]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[4]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 4,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[4]' }//   },//   {//     'timer update tabA before': 5,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[5]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[5]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 5,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[5]' }//   }// ]</code></pre>
+    <pre class="prettyprint"><code>// import fs from 'fs'import _ from 'lodash-es'import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'// import WOrm from 'w-orm-mongodb/src/WOrmMongodb.mjs' //自行選擇引用ORMimport WOrm from 'w-orm-lowdb/src/WOrmLowdb.mjs' //自行選擇引用ORMimport WServWebdataServer from './src/WServWebdataServer.mjs'let ms = []//預先刪除w-orm-lowdb資料庫try {    fs.unlinkSync('./db.json')}catch (err) {}//optWOrmlet optWOrm = {    // url: 'mongodb://username:password@127.0.0.1:27017',    // db: 'servdata',    url: './db.json',    db: 'servdata',    cl: '',}//tableNamesExec, tableNamesSynclet tableNamesExec = ['tabA', 'tabB']let tableNamesSync = ['tabA']//kpOrmlet kpOrm = {}for (let k in tableNamesExec) {    let v = tableNamesExec[k]    let opt = { ...optWOrm, cl: v }    let wo = new WOrm(opt)    kpOrm[v] = wo}// console.log('kpOrm', kpOrm)//saveDatalet saveData = async(cl, r) => {    //w    let w = kpOrm[cl] //一定要由kpOrm操作, 否則傳kpOrm進去WServWebdataServer會無法收到change事件    console.log('saveData cl', cl, r)    ms.push({ 'saveData before': { cl, data: JSON.stringify(r) } })    //save    await w.save(r, { autoInsert: true })        .then(function(msg) {            console.log('save then', cl, msg)            ms.push({ 'saveData after': { cl, data: JSON.stringify(msg) } })        })        .catch(function(err) {            console.log('save catch', cl, err)        })}let rr = [    {        id: 'id-tabA-peter',        name: 'peter',        value: 123,    },    {        id: 'id-tabA-rosemary',        name: 'rosemary',        value: 123.456,    },    {        id: 'id-tabA-kettle',        name: 'kettle',        value: 456,    },]await saveData('tabA', r)console.log('saveData tabA')r = [    {        id: 'id-tabB-peter',        name: 'peter',        value: 123,    },    {        id: 'id-tabB-rosemary',        name: 'rosemary',        value: 123.456,    },]await saveData('tabB', r)console.log('saveData tabB')let n = 0let t = setInterval(async () => {    n++    console.log('update tabA', n)    r = {        id: 'id-tabA-peter',        name: 'peter',        value: `peter-n[${n}]`,    }    ms.push({ 'timer update tabA before': n, r })    await saveData('tabA', r)    ms.push({ 'timer update tabA after': n, r })    if (n >= 5) {        clearInterval(t)    }}, 2000)let instWConverServer = new WConverhpServer({    port: 9000,})let procCommon = async (userId, tableName, methodName, input) => {    // console.log('procCommon call', tableName, methodName, input)    let r = await kpOrm[tableName][methodName](input)    // console.log('procCommon result', r)    return r}let uploadFile = async (userId, { name, u8a }) => {    console.log('uploadFile', userId, name, _.size(u8a))    ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })    // fs.writeFileSync(name, Buffer.from(u8a))    ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })    console.log('uploadFile writeFileSync finish')    return { name, size: _.size(u8a) }}instWConverServer = new WServWebdataServer(instWConverServer, {    getUserIdByToken: async (token) => { //可使用async或sync函數        return 'id-for-admin'    },    kpOrm,    operOrm: procCommon, //procCommon的輸入為: userId, tableName, methodName, input    tableNamesExec,    tableNamesSync,    kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數        uploadFile,        add: (userId, input) => {            console.log('add', input)            let r = input.pa + input.pb            ms.push({ 'kpFunExt add': { input: JSON.stringify(input), output: JSON.stringify(r) } })            return r        },        //...    },    // fpTableTags: 'tableTags-serv-webdata.json',})//errorinstWConverServer.on('error', (err) => {    console.log('error', err)})//sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stopsetTimeout(() => {    instWConverServer.clearBroadcast()    instWConverServer.stop()    console.log('ms', ms)}, 14000)// => ms [//   {//     'saveData before': {//       cl: 'tabA',//       data: '[{"id":"id-tabA-peter","name":"peter","value":123},{"id":"id-tabA-rosemary","name":"rosemary","value":123.456},{"id":"id-tabA-kettle","name":"kettle","value":456}]'//     }//   },//   {//     'saveData after': {//       cl: 'tabA',//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'//     }//   },//   {//     'saveData before': {//       cl: 'tabB',//       data: '[{"id":"id-tabB-peter","name":"peter","value":123},{"id":"id-tabB-rosemary","name":"rosemary","value":123.456}]'//     }//   },//   {//     'saveData after': {//       cl: 'tabB',//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'//     }//   },//   {//     'timer update tabA before': 1,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[1]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 1,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[1]' }//   },//   {//     'timer update tabA before': 2,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[2]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[2]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 2,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[2]' }//   },//   {//     'timer update tabA before': 3,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[3]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[3]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 3,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[3]' }//   },//   {//     'timer update tabA before': 4,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[4]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[4]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 4,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[4]' }//   },//   {//     'timer update tabA before': 5,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[5]' }//   },//   {//     'saveData before': {//       cl: 'tabA',//       data: '{"id":"id-tabA-peter","name":"peter","value":"peter-n[5]"}'//     }//   },//   {//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }//   },//   {//     'timer update tabA after': 5,//     r: { id: 'id-tabA-peter', name: 'peter', value: 'peter-n[5]' }//   }// ]</code></pre>
 
 
 
@@ -577,6 +577,86 @@
         </tr>
 
     
+
+        <tr>
+            
+                <td class="name"><code>fpTableTags</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>'tableTags.json'</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入儲存各資料表時間戳檔案路徑串，預設'./tableTags.json'</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>genTag</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>()=>'{random string}'</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入產生不重複識別碼函數，預設()=&gt;'{random string}'</p></td>
+        </tr>
+
+    
     </tbody>
 </table>
 
@@ -665,7 +745,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.2</a> on Wed Apr 02 2025 11:34:56 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.2</a> on Wed Apr 02 2025 11:57:50 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

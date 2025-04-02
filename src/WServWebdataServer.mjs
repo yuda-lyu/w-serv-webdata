@@ -1,10 +1,13 @@
 import get from 'lodash-es/get.js'
 import evem from 'wsemi/src/evem.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
+import now2str from 'wsemi/src/now2str.mjs'
+import genID from 'wsemi/src/genID.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
+import isfun from 'wsemi/src/isfun.mjs'
 import WSyncWebdataServer from 'w-sync-webdata/src/WSyncWebdataServer.mjs'
 import WServBroadcastServer from 'w-serv-broadcast/src/WServBroadcastServer.mjs'
 import pickTables from './pickTables.mjs'
@@ -26,6 +29,8 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * @param {Array} [opt.methodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']
  * @param {Function} [opt.getUserIdByToken=async()=>''] 輸入取得使用者ID的回調函數，傳入參數為各函數的原始參數，預設async()=>''
  * @param {Object} [opt.kpFunExt=null] 輸入額外擴充執行函數物件，key為函數名而值為函數，預設null
+ * @param {String} [opt.fpTableTags='tableTags.json'] 輸入儲存各資料表時間戳檔案路徑串，預設'./tableTags.json'
+ * @param {Function} [opt.genTag=()=>'{random string}'] 輸入產生不重複識別碼函數，預設()=>'{random string}'
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
@@ -325,8 +330,19 @@ function WServWebdataServer(instWConverServer, opt = {}) {
         fpTableTags = './tableTags.json'
     }
 
+    //genTag
+    let genTag = get(opt, 'genTag')
+    if (!isfun(genTag)) {
+        genTag = () => {
+            return now2str() + '|' + genID(6)
+        }
+    }
+
     //擴充同步資料功能
-    instWConverServer = new WSyncWebdataServer(instWConverServer, { fpTableTags })
+    instWConverServer = new WSyncWebdataServer(instWConverServer, {
+        fpTableTags,
+        genTag, //供updateTableTag使用
+    })
 
     //擴充廣播功能
     instWConverServer = new WServBroadcastServer(instWConverServer)
@@ -401,6 +417,9 @@ function WServWebdataServer(instWConverServer, opt = {}) {
             instWConverServer,
             tableNamesSync,
             kpOrm,
+            {
+                genTag, //供初始化tableTagsSrv用
+            },
         )
 
     }

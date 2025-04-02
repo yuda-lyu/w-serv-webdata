@@ -1,6 +1,8 @@
+import get from 'lodash-es/get.js'
 import each from 'lodash-es/each.js'
 import size from 'lodash-es/size.js'
 import iseobj from 'wsemi/src/iseobj.mjs'
+import isfun from 'wsemi/src/isfun.mjs'
 import now2str from 'wsemi/src/now2str.mjs'
 import genID from 'wsemi/src/genID.mjs'
 import pickTables from './pickTables.mjs'
@@ -25,10 +27,18 @@ function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) 
         return instWConverServer
     }
 
+    //genTag
+    let genTag = get(opt, 'genTag')
+    if (!isfun(genTag)) {
+        genTag = () => {
+            return now2str() + '|' + genID(6)
+        }
+    }
+
     //tableTagsSrv
     let tableTagsSrv = {}
     each(tableNames, (tableName) => {
-        tableTagsSrv[tableName] = `${now2str()}:${genID(10)}` //啟動時用時間與隨機字串初始化, 視為皆有變更須同步
+        tableTagsSrv[tableName] = genTag()
     })
     // console.log('tableTagsSrv', tableTagsSrv)
 
