@@ -150,15 +150,6 @@ let procCommon = async (userId, tableName, methodName, input) => {
     return r
 }
 
-let uploadFile = async (userId, { name, u8a }) => {
-    console.log('uploadFile', userId, name, _.size(u8a))
-    ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })
-    // fs.writeFileSync(name, Buffer.from(u8a))
-    ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })
-    console.log('uploadFile writeFileSync finish')
-    return { name, size: _.size(u8a) }
-}
-
 instWConverServer = new WServWebdataServer(instWConverServer, {
     getUserIdByToken: async (token) => { //可使用async或sync函數
         return 'id-for-admin'
@@ -168,7 +159,14 @@ instWConverServer = new WServWebdataServer(instWConverServer, {
     tableNamesExec,
     tableNamesSync,
     kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
-        uploadFile,
+        uploadFile: async (userId, { name, u8a }) => {
+            console.log('uploadFile', userId, name, _.size(u8a))
+            ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })
+            // fs.writeFileSync(name, Buffer.from(u8a))
+            ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })
+            console.log('uploadFile writeFileSync finish')
+            return { name, size: _.size(u8a) }
+        },
         add: (userId, input) => {
             console.log('add', input)
             let r = input.pa + input.pb
@@ -444,14 +442,14 @@ setTimeout(() => {
 
 [Necessary] Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.43/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.44/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.43/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.44/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

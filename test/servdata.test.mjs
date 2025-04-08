@@ -134,15 +134,6 @@ describe('servdata', function() {
             return r
         }
 
-        let uploadFile = async (userId, { name, u8a }) => {
-            // console.log('uploadFile', userId, name, _.size(u8a))
-            ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })
-            // fs.writeFileSync(name, Buffer.from(u8a))
-            ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })
-            // console.log('uploadFile writeFileSync finish')
-            return { name, size: _.size(u8a) }
-        }
-
         instWConverServer = new WServWebdataServer(instWConverServer, {
             getUserIdByToken: async (token) => { //可使用async或sync函數
                 return 'id-for-admin'
@@ -152,7 +143,14 @@ describe('servdata', function() {
             tableNamesExec,
             tableNamesSync,
             kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
-                uploadFile,
+                uploadFile: async (userId, { name, u8a }) => {
+                    // console.log('uploadFile', userId, name, _.size(u8a))
+                    ms.push({ 'uploadFile before': { name, size: _.size(u8a) } })
+                    // fs.writeFileSync(name, Buffer.from(u8a))
+                    ms.push({ 'uploadFile after': { name, size: _.size(u8a) } })
+                    // console.log('uploadFile writeFileSync finish')
+                    return { name, size: _.size(u8a) }
+                },
                 add: (userId, input) => {
                     // console.log('add', input)
                     let r = input.pa + input.pb
