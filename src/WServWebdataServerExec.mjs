@@ -153,7 +153,7 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
             //ks
             let ks = keys(funcs)
 
-            //會提供內部同步用系統函數須去除
+            //會提供內部同步用系統函數, 須去除
             ks = arrPull(ks, '[sys:getTableTags]')
 
             //r

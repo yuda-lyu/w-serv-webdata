@@ -205,7 +205,7 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     instWConverClient = new WServBroadcastClient(instWConverClient)
 
     function executeShell(func) {
-        //通過instWConverClient.execute調用後端函數
+        //通過instWConverClient.execute調用後端函數func
         async function f() {
 
             //pm
@@ -292,31 +292,45 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     instWConverClient.on('openOnce', function() {
         // console.log('instWConverClient: openOnce')
 
-        //getFuncList, 取得可用函數清單
-        executeShell('[sys:getFuncList]')()
-            .then((res) => {
-                // console.log('[sys:getFuncList] res', res)
+        //core
+        let core = async() => {
 
-                //bindFuncs
-                bindFuncs(res)
+            //1.openOnce是第1次完成通過execute調用[sys:polling]後才會觸發
+            //2.於openOnce內再通過execute調用[sys:getFuncList]後, 才能取得伺服器可用函數清單, 有orm可用函數清單才有辦法綁定execs, 才有辦法針對後端orm對應函數執行select撈取資料庫數據
+            //3.updateSyncTable內是通過updateTableTags去觸發[w-sync-webdata的client]的refreshTable, refreshTable再通過execs[input.tableName].select()去撈資料庫資料
+            //4.調用[sys:getFuncList]與[sys:getTableTags]不能保證回傳順序, 得要強制await
 
-            })
-            .catch((err) => {
-                instWConverClient.emit('error', err)
-            })
+            //getFuncList, 取得可用函數清單
+            await executeShell('[sys:getFuncList]')()
+                .then((res) => {
+                    // console.log('[sys:getFuncList] res', res)
 
-        //getFuncList, 取得同步資料
-        executeShell('[sys:getTableTags]')()
-            .then((data) => {
-                // console.log('[sys:getTableTags] data', data)
+                    //bindFuncs
+                    bindFuncs(res)
 
-                //updateSyncTable, 啟動並連線成功後取得時間戳
-                updateSyncTable(data)
+                })
+                .catch((err) => {
+                    instWConverClient.emit('error', err)
+                })
 
-            })
-            .catch((err) => {
-                instWConverClient.emit('error', err)
-            })
+            //getTableTags, 取得同步資料
+            await executeShell('[sys:getTableTags]')()
+                .then((data) => {
+                    // console.log('[sys:getTableTags] data', data)
+
+                    //updateSyncTable, 啟動並連線成功後取得時間戳
+                    updateSyncTable(data)
+
+                })
+                .catch((err) => {
+                    instWConverClient.emit('error', err)
+                })
+
+        }
+
+        //core
+        core()
+            .catch(() => {})
 
     })
 
@@ -356,7 +370,7 @@ function WServWebdataClient(instWConverClient, opt = {}) {
 
         //select, 通過$fapi來取資料
         // console.log('getAPIData before: ', input.tableName)
-        execs[input.tableName].select()
+        execs[input.tableName].select() //沒限制{isActive:'y'}, 後端須基於權限給予適合數據
             .then((data) => {
                 // console.log('getAPIData after: ', input.tableName, data)
                 input.pm.resolve(data)
