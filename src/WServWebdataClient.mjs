@@ -159,7 +159,7 @@ import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
  *
  */
 function WServWebdataClient(instWConverClient, opt = {}) {
-    let execs = {}
+    let kpExec = {}
 
     //check
     if (!iseobj(instWConverClient)) {
@@ -262,16 +262,16 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     }
 
     function bindFuncs(funcs) {
-        //將函數清單自動綁定至物件execs
+        //將函數清單自動綁定至物件kpExec
 
-        //execs
-        execs = {}
+        //kpExec
+        kpExec = {}
         each(funcs, (func) => {
-            set(execs, func, executeShell(func))
+            set(kpExec, func, executeShell(func))
         })
 
         //getServerMethods
-        getServerMethods(execs)
+        getServerMethods(kpExec)
 
     }
 
@@ -296,8 +296,8 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         let core = async() => {
 
             //1.openOnce是第1次完成通過execute調用[sys:polling]後才會觸發
-            //2.於openOnce內再通過execute調用[sys:getFuncList]後, 才能取得伺服器可用函數清單, 有orm可用函數清單才有辦法綁定execs, 才有辦法針對後端orm對應函數執行select撈取資料庫數據
-            //3.updateSyncTable內是通過updateTableTags去觸發[w-sync-webdata的client]的refreshTable, refreshTable再通過execs[input.tableName].select()去撈資料庫資料
+            //2.於openOnce內再通過execute調用[sys:getFuncList]後, 才能取得伺服器可用函數清單, 有orm可用函數清單才有辦法綁定kpExec, 才有辦法針對後端orm對應函數執行select撈取資料庫數據
+            //3.updateSyncTable內是通過updateTableTags去觸發[w-sync-webdata的client]的refreshTable, refreshTable再通過kpExec[input.tableName].select()去撈資料庫資料
             //4.調用[sys:getFuncList]與[sys:getTableTags]不能保證回傳順序, 得要強制await
 
             //getFuncList, 取得可用函數清單
@@ -358,8 +358,8 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         // console.log('refreshTable', input)
 
         //check
-        if (!iseobj(execs[input.tableName])) {
-            instWConverClient.emit('error', `invalid execs[${input.tableName}]`)
+        if (!iseobj(kpExec[input.tableName])) {
+            instWConverClient.emit('error', `invalid kpExec[${input.tableName}]`)
             return
         }
 
@@ -368,9 +368,27 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             getRefreshTable(input)
         }
 
-        //select, 通過$fapi來取資料
+        //exec
+        let exec = get(kpExec, input.tableName)
+
+        //check
+        if (!iseobj(exec)) {
+            console.log(`kpExec[${input.tableName}] is not an effective object`)
+            return
+        }
+
+        //funSelect
+        let funSelect = get(exec, 'select')
+
+        //check
+        if (!isfun(funSelect)) {
+            console.log(`kpExec[${input.tableName}].select is not a function`)
+            return
+        }
+
+        //select
         // console.log('getAPIData before: ', input.tableName)
-        execs[input.tableName].select() //沒限制{isActive:'y'}, 後端須基於權限給予適合數據
+        funSelect() //沒限制{isActive:'y'}, 後端須基於權限給予適合數據
             .then((data) => {
                 // console.log('getAPIData after: ', input.tableName, data)
                 input.pm.resolve(data)
