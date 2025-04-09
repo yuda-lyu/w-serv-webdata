@@ -301,36 +301,26 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             //4.調用[sys:getFuncList]與[sys:getTableTags]不能保證回傳順序, 得要強制await
 
             //getFuncList, 取得可用函數清單
-            await executeShell('[sys:getFuncList]')()
-                .then((res) => {
-                    // console.log('[sys:getFuncList] res', res)
+            let res = await executeShell('[sys:getFuncList]')()
+            // console.log('[sys:getFuncList] res', res)
 
-                    //bindFuncs
-                    bindFuncs(res)
-
-                })
-                .catch((err) => {
-                    instWConverClient.emit('error', err)
-                })
+            //bindFuncs
+            bindFuncs(res)
 
             //getTableTags, 取得同步資料
-            await executeShell('[sys:getTableTags]')()
-                .then((data) => {
-                    // console.log('[sys:getTableTags] data', data)
+            let data = await executeShell('[sys:getTableTags]')()
+            // console.log('[sys:getTableTags] data', data)
 
-                    //updateSyncTable, 啟動並連線成功後取得時間戳
-                    updateSyncTable(data)
-
-                })
-                .catch((err) => {
-                    instWConverClient.emit('error', err)
-                })
+            //updateSyncTable, 啟動並連線成功後取得時間戳
+            updateSyncTable(data)
 
         }
 
         //core
         core()
-            .catch(() => {})
+            .catch((err) => {
+                instWConverClient.emit('error', err)
+            })
 
     })
 
