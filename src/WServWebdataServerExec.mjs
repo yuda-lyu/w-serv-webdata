@@ -115,6 +115,12 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
     async function execFun(func, input, pm) {
         // console.log('execFun', func, input)
 
+        //check, 必要檢測, 有些防火牆會刪除或修改封包內容, 導致無法解析func或input, 進而會導致後續取得sysToken或sysInput失效, 為避免誤判須先行偵測func, 若無func多半是封包被修改導致
+        if (!isestr(func)) {
+            pm.resolve({ state: 'error', msg: 'invalid func' })
+            return pm //提前離開
+        }
+
         //get token, 將內部token提出
         let token = ''
         if (!haskey(input, '__sysToken__')) {
