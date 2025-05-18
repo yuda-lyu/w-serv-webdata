@@ -1,18 +1,18 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.70",
+  "version": "1.0.71",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
     "lodash-es": "^4.17.21",
-    "w-serv-broadcast": "^1.0.58",
-    "w-sync-webdata": "^1.0.39",
+    "w-serv-broadcast": "^1.0.59",
+    "w-sync-webdata": "^1.0.40",
     "wsemi": "^1.7.90"
   },
   "devDependencies": {
     "form-data": "^4.0.2",
     "w-orm-lowdb": "^1.0.6",
-    "w-converhp": "^2.0.49",
-    "w-package-tools": "^1.0.90"
+    "w-converhp": "^2.0.52",
+    "w-package-tools": "^1.1.2"
   },
   "scripts": {
     "test": "mocha --parallel --timeout 60000",
