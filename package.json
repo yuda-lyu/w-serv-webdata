@@ -1,12 +1,12 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.0.77",
+  "version": "1.0.78",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
     "lodash-es": "^4.17.21",
-    "w-serv-broadcast": "^1.0.67",
-    "w-sync-webdata": "^1.0.44",
-    "wsemi": "^1.8.14"
+    "w-serv-broadcast": "^1.0.68",
+    "w-sync-webdata": "^1.0.45",
+    "wsemi": "^1.8.16"
   },
   "devDependencies": {
     "form-data": "^4.0.3",
