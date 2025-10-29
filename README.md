@@ -17,6 +17,7 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 * `w-serv-webdata-client`: for nodejs and browser client
 
 ## Installation
+
 ### Using npm(ES6 module):
 ```alias
 npm i w-serv-webdata
@@ -438,9 +439,8 @@ setTimeout(() => {
 ```
 
 ### In a browser(UMD module):
-> **Note:** `w-serv-webdata-client` does't depend on any package.
 
-[Necessary] Add script for w-serv-webdata-client.
+Add script for w-serv-webdata-client.
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.87/dist/w-serv-webdata-client.umd.js"></script>
 ```
