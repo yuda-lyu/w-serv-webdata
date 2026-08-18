@@ -208,7 +208,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //   {
  * //     'saveData after': {
  * //       cl: 'tabA',
- * //       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
+ * //       data: '[{"n":1,"nInserted":1,"nModified":0,"ok":1},{"n":1,"nInserted":1,"nModified":0,"ok":1},{"n":1,"nInserted":1,"nModified":0,"ok":1}]'
  * //     }
  * //   },
  * //   {
@@ -220,7 +220,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //   {
  * //     'saveData after': {
  * //       cl: 'tabB',
- * //       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
+ * //       data: '[{"n":1,"nInserted":1,"nModified":0,"ok":1},{"n":1,"nInserted":1,"nModified":0,"ok":1}]'
  * //     }
  * //   },
  * //   {
@@ -234,7 +234,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //     }
  * //   },
  * //   {
- * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
  * //   },
  * //   {
  * //     'timer update tabA after': 1,
@@ -251,7 +251,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //     }
  * //   },
  * //   {
- * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
  * //   },
  * //   {
  * //     'timer update tabA after': 2,
@@ -268,7 +268,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //     }
  * //   },
  * //   {
- * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
  * //   },
  * //   {
  * //     'timer update tabA after': 3,
@@ -285,7 +285,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //     }
  * //   },
  * //   {
- * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
  * //   },
  * //   {
  * //     'timer update tabA after': 4,
@@ -302,7 +302,7 @@ import WServWebdataServerExec from './WServWebdataServerExec.mjs'
  * //     }
  * //   },
  * //   {
- * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+ * //     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
  * //   },
  * //   {
  * //     'timer update tabA after': 5,

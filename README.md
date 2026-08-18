@@ -200,7 +200,7 @@ setTimeout(() => {
 //   {
 //     'saveData after': {
 //       cl: 'tabA',
-//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
+//       data: '[{"n":1,"nInserted":1,"nModified":0,"ok":1},{"n":1,"nInserted":1,"nModified":0,"ok":1},{"n":1,"nInserted":1,"nModified":0,"ok":1}]'
 //     }
 //   },
 //   {
@@ -212,7 +212,7 @@ setTimeout(() => {
 //   {
 //     'saveData after': {
 //       cl: 'tabB',
-//       data: '[{"n":1,"nInserted":1,"ok":1},{"n":1,"nInserted":1,"ok":1}]'
+//       data: '[{"n":1,"nInserted":1,"nModified":0,"ok":1},{"n":1,"nInserted":1,"nModified":0,"ok":1}]'
 //     }
 //   },
 //   {
@@ -226,7 +226,7 @@ setTimeout(() => {
 //     }
 //   },
 //   {
-//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
 //   },
 //   {
 //     'timer update tabA after': 1,
@@ -243,7 +243,7 @@ setTimeout(() => {
 //     }
 //   },
 //   {
-//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
 //   },
 //   {
 //     'timer update tabA after': 2,
@@ -260,7 +260,7 @@ setTimeout(() => {
 //     }
 //   },
 //   {
-//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
 //   },
 //   {
 //     'timer update tabA after': 3,
@@ -277,7 +277,7 @@ setTimeout(() => {
 //     }
 //   },
 //   {
-//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
 //   },
 //   {
 //     'timer update tabA after': 4,
@@ -294,7 +294,7 @@ setTimeout(() => {
 //     }
 //   },
 //   {
-//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nModified":1,"ok":1}]' }
+//     'saveData after': { cl: 'tabA', data: '[{"n":1,"nInserted":0,"nModified":1,"ok":1}]' }
 //   },
 //   {
 //     'timer update tabA after': 5,
@@ -442,14 +442,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.96/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.97/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.96/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.0.97/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 
