@@ -1,18 +1,21 @@
 import get from 'lodash-es/get.js'
 import each from 'lodash-es/each.js'
-import find from 'lodash-es/find.js'
+import map from 'lodash-es/map.js'
+import uniq from 'lodash-es/uniq.js'
 import keys from 'lodash-es/keys.js'
+import toPath from 'lodash-es/toPath.js'
 import cloneDeep from 'lodash-es/cloneDeep.js'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
-import ispm from 'wsemi/src/ispm.mjs'
 import cstr from 'wsemi/src/cstr.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import arrPull from 'wsemi/src/arrPull.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
+import evEmit from 'wsemi/src/evEmit.mjs'
+import getErrorMessage from 'wsemi/src/getErrorMessage.mjs'
 
 
 function WServWebdataServerExec(instWConverServer, opt = {}) {
@@ -50,7 +53,7 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
     if (useDbOrm) {
         tableNames = get(opt, 'tableNames', null)
         if (!isarr(tableNames)) {
-            throw new Error('invalid opt.tableNames when useDbOrm=true')
+            throw new Error('invalid opt.tableNamesExec when useDbOrm=true') //訊息用WServWebdataServer對外之參數名
         }
     }
 
@@ -58,9 +61,12 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
     let methods = []
     if (useDbOrm) {
         methods = get(opt, 'methods', null)
-        if (!isarr(methods)) {
+        if (methods === null) {
             // methods = ['select', 'insert', 'save', 'del', 'dellAll']
             methods = ['select', 'insert', 'save', 'del']
+        }
+        else if (!isarr(methods)) {
+            throw new Error('invalid opt.methodsExec when useDbOrm=true') //有給但非陣列時拋錯, 不可靜默改用預設而開放寫入方法
         }
     }
 
@@ -73,8 +79,11 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         }
     }
 
-    //kpFunExt
+    //kpFunExt, 使用端提供之擴充函數
     let kpFunExt = get(opt, 'kpFunExt', null)
+
+    //kpFunSys, 本套件內部提供之系統函數(例如[sys:getTableTags]), 與kpFunExt分開傳入, 不受kpFunExt之命名限制
+    let kpFunSys = get(opt, 'kpFunSys', null)
 
     //buildFuncs
     function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
@@ -120,21 +129,50 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         // console.log('funcs(buildFuncs)', funcs)
 
     }
+    //namesGuard, 前端以lodash之set依函數名綁定(見WServWebdataClient之bindFuncs), set會略過路徑中之此三者而無法綁定
+    let namesGuard = ['__proto__', 'constructor', 'prototype']
+
+    //getBindPath, 取前端綁定函數時之路徑(與lodash之set同一解析, 例如'tabA[select]'亦為['tabA','select']), 無法綁定者拋錯
+    let getBindPath = (name, from) => {
+        let ps = toPath(name)
+        if (ps.length === 0) {
+            throw new Error(`${from}[${name}] can not be bound by the client`)
+        }
+        each(ps, (p) => {
+            if (namesGuard.includes(p)) {
+                throw new Error(`${from}[${name}] can not be bound by the client`)
+            }
+        })
+        return ps
+    }
+
+    //topsTable, 表操作之頂層名(表名), 前端綁定為$fapi.表名.方法, 此頂層名保留給表操作
+    let topsTable = uniq(map(keys(funcs), (pathName) => {
+        return getBindPath(pathName, 'table operation')[0]
+    }))
+
     if (iseobj(kpFunExt)) { //add ext. async funcs
-        let pathNames = keys(funcs) //表操作之函數名
         each(kpFunExt, (v, k) => {
 
-            //check, kpFunExt不得與表操作同名, 否則覆蓋表操作而脫離authorizeExec之授權; 亦不得為表操作之上層名(例如表名), 否則前端綁定函數時會覆蓋該表之各表操作
-            let pathName = find(pathNames, (pn) => {
-                return pn === k || pn.startsWith(`${k}.`)
-            })
-            if (isestr(pathName)) {
-                throw new Error(`kpFunExt[${k}] conflicts with the table operation[${pathName}]`)
+            //check, 系統函數之名稱保留
+            if (k.startsWith('[sys:')) {
+                throw new Error(`kpFunExt[${k}] can not use the reserved prefix [sys:`)
+            }
+
+            //check, kpFunExt之頂層名不得為表名, 否則前端綁定時覆蓋該表之表操作(同名時更會覆蓋伺服端之表操作而脫離authorizeExec), 或使kpFunExt看似表操作卻不經authorizeExec
+            let ps = getBindPath(k, 'kpFunExt')
+            if (topsTable.includes(ps[0])) {
+                throw new Error(`kpFunExt[${k}] conflicts with the table operations of table[${ps[0]}]`)
             }
 
             funcs[k] = v
         })
         // console.log('funcs(kpFunExt)', funcs)
+    }
+    if (iseobj(kpFunSys)) { //add sys. funcs
+        each(kpFunSys, (v, k) => {
+            funcs[k] = v
+        })
     }
 
     //execFun
@@ -167,15 +205,13 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         if (true) {
 
             //getUserIdByToken, 拋錯或reject時視同拒絕, 拒絕值原樣成為回應之msg(與各函數經pm2resolve之拒絕值同規則), 使用端可藉此回自己之語系鍵
+            //不可改用pm2resolve: 其將同步throw null視為成功, 會以空字串userId繼續執行(fail-open)
             try {
-                userId = getUserIdByToken(token)
-                if (ispm(userId)) {
-                    userId = await userId
-                }
+                userId = await getUserIdByToken(token) //以await取值, 使原生Promise與其他thenable一致處理
             }
             catch (err) {
-                pm.resolve({ state: 'error', msg: err }) //先回應再發事件, 確保回應不因事件處理拋錯而懸置
-                instWConverServer.emit('error', err)
+                pm.resolve({ state: 'error', msg: err }) //先回應再發事件
+                evEmit(instWConverServer, 'error', [err]) //監聽者拋錯時由evEmit隔離, 不中斷流程
                 return pm //提前離開
             }
 
@@ -220,21 +256,21 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
             pm.resolve(r)
         }
         catch (err) {
-            pm.resolve({ state: 'error', msg: `call func[${func}] has an error: ${err.message}` })
+            pm.resolve({ state: 'error', msg: `call func[${func}] has an error: ${getErrorMessage(err)}` })
         }
 
         return pm //共用Promise
     }
 
-    //監聽execute
-    instWConverServer.on('execute', async function(func, input, pm) {
+    //監聽execute, 依w-converhp之契約監聽器須為同步函數且不可回傳promise(其rejection即unhandledRejection而使行程崩潰), 非同步結果一律經pm回覆
+    instWConverServer.on('execute', function(func, input, pm) {
         //console.log(`Server[port:${optServer.port}]: execute`, func, input)
 
-        //execFun
-        await execFun(func, input, pm)
+        //execFun, 收尾之catch不可再拋錯: getErrorMessage不拋錯, 事件經evEmit隔離監聽者之拋錯
+        execFun(func, input, pm)
             .catch((err) => {
-                instWConverServer.emit('error', err)
-                pm.resolve({ state: 'error', msg: `execFun func[${func}] has an error: ${err.message}` })
+                pm.resolve({ state: 'error', msg: `execFun func[${func}] has an error: ${getErrorMessage(err)}` }) //先回應再發事件
+                evEmit(instWConverServer, 'error', [err])
             })
 
     })

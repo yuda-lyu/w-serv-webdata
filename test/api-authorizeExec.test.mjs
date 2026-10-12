@@ -24,7 +24,7 @@ describe('api-authorizeExec', function() {
     before(async function() {
         fs.mkdirSync(fdTmp, { recursive: true })
 
-        srv = new WConverhpServer({ port })
+        srv = new WConverhpServer({ port, pathUploadTemp: `${fdTmp}/uploadTemp` }) //上傳暫存資料夾亦落於本測試專用資料夾, 不可用預設之./uploadTemp
         srv = new WServWebdataServer(srv, {
             fpTableTags: `${fdTmp}/tableTags.json`,
             getUserIdByToken: (token) => {

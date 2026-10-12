@@ -121,52 +121,122 @@ describe('unit-authorizeExec', function() {
         })
 
         //R10
-        it('useDbOrm未給或非布林時視同false, 不拋錯且無表操作', async function() {
+        it('useDbOrm未給或非布林且未給資料通道設定時視同false, 不拋錯且無表操作', async function() {
             for (let useDbOrm of [undefined, 'y']) {
-                let inst = build({ fpTableTags, useDbOrm, tableNamesExec: ['tabA'] })
+                let inst = build({ fpTableTags, useDbOrm, kpFunExt: { add: () => 1 } })
                 let r = await exec(inst, '[sys:getFuncList]')
-                assert.strict.deepEqual(r, { state: 'success', msg: [] }, `useDbOrm=${useDbOrm}`)
+                assert.strict.deepEqual(r, { state: 'success', msg: ['add'] }, `useDbOrm=${useDbOrm}`)
             }
         })
 
-        //R10
-        it('useDbOrm=false時未給authorizeExec不拋錯', function() {
-            build({ fpTableTags, useDbOrm: false })
+        //R24: 未指定useDbOrm卻給了資料通道或資料同步之設定時拋錯, 否則該些設定靜默不生效
+        it('useDbOrm未給或非布林卻給了資料通道或資料同步之設定時拋錯', function() {
+            let kp = {
+                operOrm: async () => 'ok',
+                tableNamesExec: ['tabA'],
+                methodsExec: ['select'],
+                authorizeExec: allow,
+                kpOrm: {},
+                tableNamesSync: [],
+            }
+            for (let useDbOrm of [undefined, 'y']) {
+                for (let k in kp) {
+                    assert.throws(() => {
+                        build({ fpTableTags, useDbOrm, [k]: kp[k] })
+                    }, { message: `invalid opt.useDbOrm when opt.${k} is given` }, `useDbOrm=${useDbOrm}, ${k}`)
+                }
+            }
         })
 
-        //既有檢查順序不變: operOrm、tableNamesExec先於authorizeExec
-        it('useDbOrm=true而未給operOrm或tableNamesExec時仍拋既有錯誤', function() {
+        //R10: 明示useDbOrm=false時不檢查資料通道設定(例如w-web-sso給tableNamesExec:[]與methodsExec:[])
+        it('useDbOrm=false時未給authorizeExec或給了資料通道設定皆不拋錯且無表操作', async function() {
+            build({ fpTableTags, useDbOrm: false })
+            let inst = build({ fpTableTags, useDbOrm: false, operOrm: async () => 'ok', tableNamesExec: [], methodsExec: [] })
+            let r = await exec(inst, '[sys:getFuncList]')
+            assert.strict.deepEqual(r, { state: 'success', msg: [] })
+        })
+
+        //R25: useDbOrm=true時kpOrm須為物件, 於建立資料通道之前拋錯(原為建構中emit而遺失)
+        it('useDbOrm=true而kpOrm非物件時拋錯, 且不建立資料通道', function() {
+            for (let v of [undefined, 'x', [], 1]) {
+                assert.throws(() => {
+                    mk(allow, { kpOrm: v })
+                }, { message: 'invalid opt.kpOrm when useDbOrm=true' }, `kpOrm=${JSON.stringify(v)}`)
+                let inst = insts[insts.length - 1]
+                assert.strict.equal(inst.listeners('execute').length, 1, '只剩廣播之監聽器') //資料通道之監聽器未註冊
+            }
+        })
+
+        //既有檢查順序不變: operOrm、tableNamesExec先於authorizeExec, 訊息用對外之參數名
+        it('useDbOrm=true而未給operOrm或tableNamesExec時拋錯', function() {
             assert.throws(() => {
                 mk(allow, { operOrm: undefined })
             }, { message: 'invalid opt.operOrm when useDbOrm=true' })
             assert.throws(() => {
                 mk(allow, { tableNamesExec: undefined })
-            }, { message: 'invalid opt.tableNames when useDbOrm=true' })
+            }, { message: 'invalid opt.tableNamesExec when useDbOrm=true' })
         })
 
-        //R12
+        //R19: 有給但非陣列時不可靜默改用預設(預設含寫入方法)
+        it('useDbOrm=true而methodsExec有給但非陣列時拋錯', function() {
+            for (let v of ['select', {}, 1, true]) {
+                assert.throws(() => {
+                    mk(allow, { methodsExec: v })
+                }, { message: 'invalid opt.methodsExec when useDbOrm=true' }, `methodsExec=${JSON.stringify(v)}`)
+            }
+        })
+
+        //R19
+        it('methodsExec未給或為null時使用預設之select、insert、save、del', async function() {
+            for (let methodsExec of [undefined, null]) {
+                let { inst } = mk(allow, { tableNamesExec: ['tabA'], methodsExec, kpFunExt: {} })
+                let r = await exec(inst, '[sys:getFuncList]')
+                assert.strict.deepEqual(r, { state: 'success', msg: ['tabA.select', 'tabA.insert', 'tabA.save', 'tabA.del'] }, `methodsExec=${methodsExec}`)
+            }
+        })
+
+        //R12: 同名會覆蓋表操作而脫離授權
         it('kpFunExt與已建立之表操作同名時拋錯', function() {
             assert.throws(() => {
                 mk(allow, { kpFunExt: { 'tabA.save': () => 'x' } })
-            }, { message: 'kpFunExt[tabA.save] conflicts with the table operation[tabA.save]' })
+            }, { message: 'kpFunExt[tabA.save] conflicts with the table operations of table[tabA]' })
         })
 
-        //R12
-        it('kpFunExt與已建立表操作之表名同名時拋錯', function() {
+        //R12: 等於表名時前端綁定會覆蓋該表之表操作
+        it('kpFunExt與表名同名時拋錯', function() {
             assert.throws(() => {
                 mk(allow, { kpFunExt: { 'tabB': () => 'x' } })
-            }, { message: 'kpFunExt[tabB] conflicts with the table operation[tabB.select]' })
+            }, { message: 'kpFunExt[tabB] conflicts with the table operations of table[tabB]' })
         })
 
-        //R12
-        it('kpFunExt於表名之下但非已建立之表操作時可用, 且不經授權', async function() {
-            let { inst, cnt } = mk(allow, {
-                methodsExec: ['select'],
-                kpFunExt: { 'tabA.count': () => 3 },
-            })
-            let r = await exec(inst, 'tabA.count')
-            assert.strict.deepEqual(r, { state: 'success', msg: 3 })
-            assert.strict.equal(cnt.auth.length, 0)
+        //R12: 前端以lodash路徑綁定, 中括號寫法與表名之下的名稱亦屬表名之命名空間
+        it('kpFunExt之頂層名為表名時一律拋錯(含表名之下的名稱與中括號寫法)', function() {
+            for (let k of ['tabA.count', 'tabA[select]', '["tabA"].select', '[tabA]']) {
+                assert.throws(() => {
+                    mk(allow, { kpFunExt: { [k]: () => 'x' } })
+                }, { message: `kpFunExt[${k}] conflicts with the table operations of table[tabA]` }, k)
+            }
+        })
+
+        //R12: 系統函數之名稱保留
+        it('kpFunExt使用保留之[sys:前綴時拋錯', function() {
+            for (let k of ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']) {
+                assert.throws(() => {
+                    mk(allow, { kpFunExt: { [k]: () => 'x' } })
+                }, { message: `kpFunExt[${k}] can not use the reserved prefix [sys:` }, k)
+            }
+        })
+
+        //R12: lodash之set略過__proto__、constructor、prototype, 前端無法綁定
+        it('kpFunExt或表操作之路徑含前端無法綁定之段時拋錯', function() {
+            for (let k of ['constructor', 'prototype', 'a.__proto__']) {
+                assert.throws(() => {
+                    mk(allow, { kpFunExt: { [k]: () => 'x' } })
+                }, { message: `kpFunExt[${k}] can not be bound by the client` }, k)
+            }
+            assert.throws(() => {
+                mk(allow, { tableNamesExec: ['prototype'], methodsExec: ['select'] })
+            }, { message: 'table operation[prototype.select] can not be bound by the client' })
         })
 
         //R12
@@ -181,16 +251,40 @@ describe('unit-authorizeExec', function() {
             assert.strict.deepEqual(await exec(inst, 'tabA'), { state: 'success', msg: 'tab' })
         })
 
-        //R12＋R16: 同名判斷只認自有屬性, 不得把Object.prototype之名稱誤判為同名
-        it('kpFunExt使用Object.prototype之名稱時不誤判且可呼叫', async function() {
+        //R12＋R16: 命名檢查與函數查找只認自有屬性, 前端可綁定之Object.prototype名稱(非lodash略過者)不得被誤判
+        it('kpFunExt使用toString、hasOwnProperty等名稱時不誤判且可呼叫', async function() {
             let { inst } = mk(allow, {
                 kpFunExt: {
-                    constructor: () => 'c',
                     toString: () => 's',
+                    hasOwnProperty: () => 'h',
                 },
             })
-            assert.strict.deepEqual(await exec(inst, 'constructor'), { state: 'success', msg: 'c' })
             assert.strict.deepEqual(await exec(inst, 'toString'), { state: 'success', msg: 's' })
+            assert.strict.deepEqual(await exec(inst, 'hasOwnProperty'), { state: 'success', msg: 'h' })
+        })
+
+        //R20: 設定錯誤拋錯前須停止廣播之計時器, 否則呼叫端攔下錯誤後程序仍被計時器撐住
+        it('建構拋錯後不殘留計時器', function() {
+            let countTimeout = () => {
+                return process.getActiveResourcesInfo().filter((v) => v === 'Timeout').length
+            }
+            let n0 = countTimeout()
+            assert.throws(() => {
+                mk(allow, { authorizeExec: undefined })
+            }, { message: 'invalid opt.authorizeExec when useDbOrm=true' })
+            assert.strict.equal(countTimeout(), n0, 'Exec拋錯')
+            assert.throws(() => {
+                mk(allow, { tableNamesSync: ['tabA'], kpOrm: { tabB: evem() } })
+            }, { message: 'invalid kpOrm[tabA]' })
+            assert.strict.equal(countTimeout(), n0, 'Sync拋錯')
+            assert.throws(() => {
+                mk(allow, { kpOrm: undefined })
+            }, { message: 'invalid opt.kpOrm when useDbOrm=true' })
+            assert.strict.equal(countTimeout(), n0, 'kpOrm非物件')
+            assert.throws(() => {
+                build({ fpTableTags, operOrm: async () => 'ok' })
+            }, { message: 'invalid opt.useDbOrm when opt.operOrm is given' })
+            assert.strict.equal(countTimeout(), n0, '未指定useDbOrm卻給了資料通道設定')
         })
 
     })
@@ -393,6 +487,92 @@ describe('unit-authorizeExec', function() {
             await withTimeout(exec(inst, 'tabA.select', [{}]))
             await sleep(20)
             assert.strict.deepEqual(errs, ['errUserIdMissing'])
+        })
+
+        //R13: 拒絕值為null時仍須拒絕, 不可以空字串userId繼續執行(pm2resolve會把同步throw null視為成功)
+        it('reject null或同步拋null時回應error, 且不呼叫授權函數與operOrm', async function() {
+            let fns = [
+                () => Promise.reject(null),
+                () => {
+                    // eslint-disable-next-line no-throw-literal
+                    throw null //刻意拋null, 驗證不會被當成成功而以匿名繼續執行
+                },
+            ]
+            for (let f of fns) {
+                let { inst, cnt } = mk(allow, { getUserIdByToken: f })
+                let r = await withTimeout(exec(inst, 'tabA.select', [{}]))
+                assert.strict.deepEqual(r, { state: 'error', msg: null })
+                assert.strict.equal(cnt.auth.length, 0)
+                assert.strict.equal(cnt.orm.length, 0)
+            }
+        })
+
+        //R13: 以await取值, 非原生Promise之thenable亦取其結果
+        it('回傳非原生Promise之thenable時以其結果為userId', async function() {
+            let { inst, cnt } = mk(allow, {
+                getUserIdByToken: () => {
+                    return {
+                        then: (resolve) => {
+                            resolve('u9')
+                        },
+                    }
+                },
+            })
+            await withTimeout(exec(inst, 'tabA.select', [{}]))
+            assert.strict.equal(cnt.auth[0].userId, 'u9')
+        })
+
+    })
+
+    describe('execute監聽器之契約', function() {
+
+        //R21: w-converhp之契約, 監聽器須為同步函數且不可回傳promise, 否則其rejection即unhandledRejection
+        it('execute之各監聽器皆不回傳promise', function() {
+            let { inst } = mk(allow)
+            let fns = inst.listeners('execute')
+            assert.ok(fns.length >= 2)
+            for (let fn of fns) {
+                let r = fn('[sys:getFuncList]', { __sysToken__: 'tok', __sysInputArgs__: [] }, genPm())
+                assert.ok(!(r && typeof r.then === 'function'))
+            }
+        })
+
+        //R21: error監聽者拋錯時, 回應仍只送出一次, 且不產生unhandledRejection
+        it('error事件之監聽者拋錯時回應只送出一次且不產生unhandledRejection', async function() {
+            let { inst } = mk(allow, { getUserIdByToken: () => Promise.reject('errUserIdMissing') })
+            inst.on('error', () => {
+                throw new Error('listenerBoom')
+            })
+            let unhandled = []
+            let onUnhandled = (err) => {
+                unhandled.push(err)
+            }
+            let errLogs = []
+            let consoleError = console.error
+            process.on('unhandledRejection', onUnhandled)
+            console.error = (...args) => {
+                errLogs.push(args)
+            }
+            try {
+                let pm = genPm()
+                let nResolve = 0
+                let resolve = pm.resolve
+                pm.resolve = (v) => {
+                    nResolve++
+                    resolve(v)
+                }
+                inst.emit('execute', 'tabA.select', { __sysToken__: 'tok', __sysInputArgs__: [{}] }, pm)
+                let r = await withTimeout(pm)
+                await sleep(50)
+                assert.strict.deepEqual(r, { state: 'error', msg: 'errUserIdMissing' })
+                assert.strict.equal(nResolve, 1)
+                assert.strict.equal(unhandled.length, 0)
+                assert.strict.equal(errLogs.length, 1) //監聽者之拋錯由evEmit隔離並以console.error通報
+            }
+            finally {
+                console.error = consoleError
+                process.removeListener('unhandledRejection', onUnhandled)
+            }
         })
 
     })

@@ -74,13 +74,24 @@
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>伺服器端之資料控制與同步器</p></li></ul></dd>
+    <dd class="tag-description"><ul class="dummy"><li><p>伺服器端之資料控制與同步器</p>
+<p>資料通道(useDbOrm=true時開啟)開放給前端呼叫之函數有三類：表操作(由tableNamesExec與methodsExec組成，例如'tabA.select')、kpFunExt、系統函數。前端每次呼叫依序經過getUserIdByToken(取得userId)、authorizeExec(僅表操作)，再執行operOrm或kpFunExt之函數。授權與拒絕之規則如下：</p>
+<ol>
+<li>資料通道是資料表直接開放給前端之處，表操作之授權在此，由authorizeExec負責。採預設拒絕，回傳值須嚴格等於true才放行，回傳其他值(例如false、1、'true'、undefined)一律回應'permission denied'且不呼叫operOrm。operOrm可能亦被伺服端程式呼叫而分不出呼叫來源，故不負責授權。kpFunExt之函數不經authorizeExec，須各自把關。</li>
+<li>各關卡(getUserIdByToken、authorizeExec、operOrm、kpFunExt之函數)拋錯或reject時，其值原樣成為前端收到之拒絕值，故欲回傳語系鍵須reject字串，Error物件經序列化後前端收到'Error: 訊息'字串。各關卡之回傳值與拒絕值須為可序列化之格式，此為設計要求，不支援之格式(例如循環參照、BigInt)本就不在設計範圍內，前端必然失敗。</li>
+<li>僅getUserIdByToken之拒絕會發出error事件(其值可能為undefined或null)；authorizeExec、operOrm與kpFunExt之拒絕不發出error事件，需於伺服端紀錄者請於函數內自行處理。</li>
+<li>authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫select不帶參數，故tableNamesSync內之表其select須對所有連線者放行，否則前端該表會被清空。需逐筆控管可見範圍者請改用kpFunExt提供。</li>
+<li>authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。</li>
+<li>getUserIdByToken須完整驗證token(不可只解碼)，其token取自請求內容，與通訊層(例如w-converhp之verifyConn)所驗證者為不同來源。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。</li>
+<li>函數名須能被前端綁定(前端以lodash之set依函數名綁定)：路徑各段不得為'<strong>proto</strong>'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)。違反者於建構時拋錯。</li>
+<li>設定錯誤於建構時拋錯，拋錯前會先停止廣播之計時器。設定錯誤包含：useDbOrm=true而缺operOrm、tableNamesExec、authorizeExec，或kpOrm非物件，或methodsExec有給但非陣列；未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync。</li>
+</ol></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line322">line 322</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line334">line 334</a>
     </li></ul></dd>
     
 
@@ -574,7 +585,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入是否使用資料庫ORM技術，給予true代表開啟資料通道(前端可直接呼叫由tableNamesExec與methodsExec組成之表操作，例如'tabA.select')與自動同步資料庫至前端功能，此時operOrm、tableNamesExec、authorizeExec為必填，未給或無效時拋錯，預設false</p></td>
+            <td class="description last"><p>輸入是否使用資料庫ORM技術，給予true代表開啟資料通道(前端可直接呼叫由tableNamesExec與methodsExec組成之表操作，例如'tabA.select')與自動同步資料庫至前端功能，此時operOrm、tableNamesExec、authorizeExec為必填，未給或無效時拋錯。未指定(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync時拋錯，預設false</p></td>
         </tr>
 
     
@@ -614,7 +625,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立，預設{}</p></td>
+            <td class="description last"><p>輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立，useDbOrm為true時須為物件，否則拋錯，預設{}</p></td>
         </tr>
 
     
@@ -774,7 +785,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，預設['select', 'insert', 'save', 'del']</p></td>
+            <td class="description last"><p>輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，useDbOrm為true時若有給須為陣列，否則拋錯，預設['select', 'insert', 'save', 'del']</p></td>
         </tr>
 
     
@@ -814,7 +825,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入資料表操作之授權函數，useDbOrm為true時必填，未給或非函數時拋錯。資料通道是資料表直接開放給前端之處，表操作之授權在此，operOrm可能亦被伺服端程式呼叫而分不出呼叫來源故不負責授權。前端呼叫表操作(例如'tabA.select')時，會於呼叫operOrm之前傳入物件{ userId, tableName, methodName, input }，可使用sync或async函數。採預設拒絕，回傳值須嚴格等於true才放行，回傳false或其他值(例如1、'true'、undefined)一律拒絕並回應'permission denied'，且不呼叫operOrm。授權函數拋錯或reject時其值原樣成為回應訊息，欲回傳語系鍵須reject字串，若拋Error物件則前端收到'Error: 訊息'字串。userId為getUserIdByToken所得，取不到時為空字串，宜拒絕。methodName為methodsExec所列之方法，其中'mix'之input可含多筆操作須自行解析。input與傳給operOrm者為同一物件，僅供判斷請勿修改。授權只作用於表操作，不作用於kpFunExt(各函數須自行把關)與系統函數。授權只能放行或拒絕整次呼叫，無法逐筆過濾資料，例如同步資料時前端呼叫select不帶參數，故同步表只能整表放行或拒絕，需逐筆控管可見範圍者請改用kpFunExt提供，預設null</p></td>
+            <td class="description last"><p>輸入資料表操作之授權函數，useDbOrm為true時必填，未給或非函數時拋錯。前端呼叫表操作時，會於呼叫operOrm之前傳入物件{ userId, tableName, methodName, input }，可使用sync或async函數，回傳值須嚴格等於true才放行。userId為getUserIdByToken所得，取不到時為空字串，宜拒絕；methodName為methodsExec所列之方法，宜以白名單判斷，其中'mix'之input可含多筆操作須自行解析，規則詳見上方說明，預設null</p></td>
         </tr>
 
     
@@ -854,7 +865,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入取得使用者ID的回調函數，傳入參數為前端提供之token字串，可使用sync或async函數，回傳非字串時視為空字串。拋錯或reject時拒絕該次呼叫，其值原樣成為回應訊息並發出error事件，預設async()=&gt;''</p></td>
+            <td class="description last"><p>輸入取得使用者ID的回調函數，傳入參數為前端提供之token字串，可使用sync或async函數，回傳非字串時視為空字串，拋錯或reject時拒絕該次呼叫，規則詳見上方說明，預設async()=&gt;''</p></td>
         </tr>
 
     
@@ -894,7 +905,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入額外擴充執行函數物件，key為函數名而值為函數，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec，須各自把關。key不得與表操作同名(例如'tabA.select')，亦不得為表操作之上層名(例如表名'tabA')，否則拋錯，預設null</p></td>
+            <td class="description last"><p>輸入額外擴充執行函數物件，key為函數名而值為函數，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，命名限制詳見上方說明，預設null</p></td>
         </tr>
 
     
@@ -1066,7 +1077,7 @@ setTimeout(() => {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 00:07:07 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 06:51:09 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
