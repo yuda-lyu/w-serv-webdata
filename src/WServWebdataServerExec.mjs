@@ -1,5 +1,6 @@
 import get from 'lodash-es/get.js'
 import each from 'lodash-es/each.js'
+import find from 'lodash-es/find.js'
 import keys from 'lodash-es/keys.js'
 import cloneDeep from 'lodash-es/cloneDeep.js'
 import iseobj from 'wsemi/src/iseobj.mjs'
@@ -63,11 +64,20 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         }
     }
 
+    //authorizeExec, 表操作之授權函數, 資料通道是資料表直接開放給前端之處, 表操作之授權在此, operOrm可能亦被伺服端程式呼叫而分不出呼叫來源故不負責授權
+    let authorizeExec = null
+    if (useDbOrm) {
+        authorizeExec = get(opt, 'authorizeExec', null)
+        if (!isfun(authorizeExec)) {
+            throw new Error('invalid opt.authorizeExec when useDbOrm=true')
+        }
+    }
+
     //kpFunExt
     let kpFunExt = get(opt, 'kpFunExt', null)
 
     //buildFuncs
-    function buildFuncs(tableNames, methods, operOrm) {
+    function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
         let funcs = {}
 
         //存取[ORM]資料表函數
@@ -79,6 +89,12 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
 
                 //bind
                 funcs[pathName] = async function(userId, input) { //第1參數需為userId
+
+                    //authorizeExec, 預設拒絕, 回傳嚴格等於true才放行, 拒絕時不呼叫operOrm; 授權函數拋錯或reject時其值原樣轉出, 經execFun之pm2resolve成為回應之msg
+                    let b = await authorizeExec({ userId, tableName, methodName, input })
+                    if (b !== true) {
+                        return Promise.reject('permission denied') //須reject字串, 若用Error物件, 序列化後前端收到的是'Error: permission denied'
+                    }
 
                     //呼叫ORM的泛用接口procCommon
                     let r = await operOrm(userId, tableName, methodName, input)
@@ -100,12 +116,22 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         tableNames = cloneDeep(tableNames)
 
         //buildFuncs
-        funcs = buildFuncs(tableNames, methods, operOrm)
+        funcs = buildFuncs(tableNames, methods, operOrm, authorizeExec)
         // console.log('funcs(buildFuncs)', funcs)
 
     }
     if (iseobj(kpFunExt)) { //add ext. async funcs
+        let pathNames = keys(funcs) //表操作之函數名
         each(kpFunExt, (v, k) => {
+
+            //check, kpFunExt不得與表操作同名, 否則覆蓋表操作而脫離authorizeExec之授權; 亦不得為表操作之上層名(例如表名), 否則前端綁定函數時會覆蓋該表之各表操作
+            let pathName = find(pathNames, (pn) => {
+                return pn === k || pn.startsWith(`${k}.`)
+            })
+            if (isestr(pathName)) {
+                throw new Error(`kpFunExt[${k}] conflicts with the table operation[${pathName}]`)
+            }
+
             funcs[k] = v
         })
         // console.log('funcs(kpFunExt)', funcs)
@@ -140,10 +166,17 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         let userId = ''
         if (true) {
 
-            //getUserIdByToken
-            userId = getUserIdByToken(token)
-            if (ispm(userId)) {
-                userId = await userId
+            //getUserIdByToken, 拋錯或reject時視同拒絕, 拒絕值原樣成為回應之msg(與各函數經pm2resolve之拒絕值同規則), 使用端可藉此回自己之語系鍵
+            try {
+                userId = getUserIdByToken(token)
+                if (ispm(userId)) {
+                    userId = await userId
+                }
+            }
+            catch (err) {
+                pm.resolve({ state: 'error', msg: err }) //先回應再發事件, 確保回應不因事件處理拋錯而懸置
+                instWConverServer.emit('error', err)
+                return pm //提前離開
             }
 
             //check
@@ -172,8 +205,8 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
             return pm //提前離開
         }
 
-        //check
-        if (!haskey(funcs, func)) {
+        //check, 只認funcs之自有屬性, 不可用haskey(其以in判斷), 否則constructor、toString等繼承自Object.prototype之名稱亦可被前端呼叫
+        if (!Object.prototype.hasOwnProperty.call(funcs, func)) {
             pm.resolve({ state: 'error', msg: `invalid func[${func}]` })
             return pm //提前離開
         }

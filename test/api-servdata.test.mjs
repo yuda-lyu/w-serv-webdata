@@ -138,10 +138,17 @@ describe('servdata', function() {
             getUserIdByToken: async (token) => { //可使用async或sync函數
                 return 'id-for-admin'
             },
+            useDbOrm: true, //開啟資料通道, 此時operOrm、tableNamesExec、authorizeExec為必填
             kpOrm,
             operOrm: procCommon, //procCommon的輸入為: userId, tableName, methodName, input
             tableNamesExec,
             tableNamesSync,
+            authorizeExec: async ({ userId, tableName, methodName, input }) => { //可使用async或sync函數, 預設拒絕, 回傳嚴格等於true才放行
+                if (userId !== 'id-for-admin') {
+                    return false //取不到使用者(空字串)或非允許之使用者一律拒絕
+                }
+                return methodName === 'select' //此範例只開放前端讀取, 寫入一律拒絕
+            },
             kpFunExt: { //接收參數第1個為userId, 之後才是前端給予參數
                 uploadFile: async (userId, { name, u8a }) => {
                     // console.log('uploadFile', userId, name, _.size(u8a))
@@ -183,7 +190,6 @@ describe('servdata', function() {
 
         //instWConverClient
         let instWConverClient = new WConverhpClient({
-            FormData, //w-converhp的WConverhpClient, 於nodejs使用FormData需安裝套件並提供, 於browser就使用內建FormData故可不用給予
             //url: window.location.origin + window.location.pathname,
             url: 'http://localhost:9000',
         })
