@@ -4,9 +4,11 @@ import evem from 'wsemi/src/evem.mjs'
 import genPm from 'wsemi/src/genPm.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
+import { sleep, extraHooks, zeros, genRun, linkCtl } from './tools/clientHarness.mjs'
 
 
 //前端與後端以記憶體假通訊層相連(不開埠, 以JSON複製模擬序列化), 驗證前端之設定檢查、綁定前之同步廣播、refreshTable各路徑之結束與回調函數之隔離
+//停止之各條用linkCtl(不支援opt.signal之通訊物件, 守停止閘門); 中止(opt.signal)之行為見unit-WServWebdataClientAbort
 describe('unit-WServWebdataClient', function() {
 
     //fdTmp, 本測試暫存檔之專用資料夾, 測完即刪
@@ -25,12 +27,6 @@ describe('unit-WServWebdataClient', function() {
         }
         fs.rmSync(fdTmp, { recursive: true, force: true })
     })
-
-    let sleep = (ms) => {
-        return new Promise((resolve) => {
-            setTimeout(resolve, ms)
-        })
-    }
 
     let clone = (v) => {
         return v === undefined ? undefined : JSON.parse(JSON.stringify(v))
@@ -77,84 +73,8 @@ describe('unit-WServWebdataClient', function() {
         return cl
     }
 
-    //linkCtl, 可控之假後端: sent記錄每次送出之函數名, delay為各函數之回應延遲(毫秒, 預設5), fail為各函數之傳輸失敗(其值為拒絕值, 模擬伺服器已停止)
-    let linkCtl = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fail = {} } = {}) => {
-        let sent = []
-        let cl = evem()
-        cl.execute = async (func) => {
-            sent.push(func)
-            await sleep(delay[func] !== undefined ? delay[func] : 5)
-            if (fail[func] !== undefined) {
-                return Promise.reject(fail[func])
-            }
-            if (func === '[sys:polling]') {
-                return []
-            }
-            if (func === '[sys:getFuncList]') {
-                return { state: 'success', msg: funcs }
-            }
-            if (func === '[sys:getTableTags]') {
-                return { state: 'success', msg: { mode: 'syncKpTable', data: tags } }
-            }
-            return { state: 'success', msg: [{ id: `row-of-${func}` }] }
-        }
-        return { cl, sent }
-    }
-
-    //hookNames, 使用端之回調函數(getToken除外), run以hooks記錄有給者之呼叫次數
-    let hookNames = ['getServerMethods', 'recvData', 'getRefreshState', 'getRefreshTable', 'getBeforeUpdateTableTags', 'getAfterUpdateTableTags']
-
-    //extraHooks, run預設未給之三個回調函數(空函數), 需記錄全部回調之呼叫次數者另給; run不可預設全給, 否則「回調函數未給」之路徑無測試走到
-    let extraHooks = () => {
-        return { getRefreshState: () => {}, getRefreshTable: () => {}, getBeforeUpdateTableTags: () => {} }
-    }
-
-    //run, 建構前端並收集事件(rawErrors為error事件之原值, hooks為有給之回調函數之呼叫次數)
-    let run = (cl, opt = {}) => {
-        let log = { recv: [], errors: [], rawErrors: [], after: 0, fapi: null, cl: null, hooks: {} }
-        let kp = {
-            getToken: () => 'tok',
-            getServerMethods: (r) => {
-                log.fapi = r
-            },
-            recvData: (r) => {
-                log.recv.push({ tableName: r.tableName, data: r.data })
-            },
-            getAfterUpdateTableTags: () => {
-                log.after++
-            },
-            ...opt,
-        }
-        //getToken亦記錄呼叫次數(nToken): 本套件於停止後不再呼叫使用端之函數, 停止後才開始之本套件請求連getToken亦不呼叫
-        let getToken = kp.getToken
-        log.nToken = 0
-        kp.getToken = (...args) => {
-            log.nToken++
-            return getToken(...args)
-        }
-        for (let k of hookNames) {
-            let fn = kp[k]
-            if (typeof fn !== 'function') {
-                continue //未給者維持未給, 走本套件「回調函數未給」之路徑
-            }
-            log.hooks[k] = 0
-            kp[k] = (...args) => {
-                log.hooks[k]++
-                return fn(...args)
-            }
-        }
-        cl = new WServWebdataClient(cl, kp)
-        cl.on('error', (err) => {
-            log.rawErrors.push(err)
-            log.errors.push(typeof err === 'string' ? err : String(err && err.message ? err.message : (err && err.msg) || err))
-        })
-        cleans.push(() => {
-            cl.clearBroadcast()
-            cl.clearSync()
-        })
-        log.cl = cl
-        return log
-    }
+    //linkCtl(不支援opt.signal之通訊物件)、hookNames、extraHooks、zeros與run之定義見./tools/clientHarness.mjs(與unit-WServWebdataClientAbort共用, 只定義一次)
+    let run = genRun(WServWebdataClient, cleans)
 
     let countTimeout = () => {
         return process.getActiveResourcesInfo().filter((v) => v === 'Timeout').length
@@ -339,15 +259,6 @@ describe('unit-WServWebdataClient', function() {
     })
 
     describe('停止', function() {
-
-        //zeros, 各回調函數皆未被呼叫
-        let zeros = () => {
-            let r = {}
-            for (let k of hookNames) {
-                r[k] = 0
-            }
-            return r
-        }
 
         //R50: 首次輪詢成功前即停止者不送出任何請求、不呼叫回調函數(行為鎖定: w-serv-broadcast 1.1.8之clearBroadcast清除輪詢計時器)
         it('首次輪詢成功前停止時不送出任何請求', async function() {

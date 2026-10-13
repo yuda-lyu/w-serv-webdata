@@ -1,0 +1,158 @@
+import evem from 'wsemi/src/evem.mjs'
+
+
+//前端測試共用之輔助(不帶.test., 不被runner當測試檔), 前端時序測試以記憶體假通訊層相連(不開埠)
+//假通訊層兩種並存, 代表兩類通訊物件(見CLAUDE_rulebook.md之R11、R14):
+//  linkCtl: execute只取func、忽略第4參數, 代表不支援opt.signal之通訊物件(w-converhp 2.1.8之前、w-converws、w-conversi), 為停止閘門之觀察者, 既有〈停止〉各條一律用之
+//  linkSig: 依w-converhp 2.1.8之契約處理opt.signal, 中止之新行為用之
+//不可把linkCtl整體改為依signal: 停止前已交給通訊物件之請求改為被中止而不再晚到, executeShell於取得token後、updateSyncTable、callHook入口之閘門即無測試可觀察(2026-10-13獨立審查之變異實測)
+
+
+let sleep = (ms) => {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
+
+
+//hookNames, 使用端之回調函數(getToken除外), run以hooks記錄有給者之呼叫次數
+let hookNames = ['getServerMethods', 'recvData', 'getRefreshState', 'getRefreshTable', 'getBeforeUpdateTableTags', 'getAfterUpdateTableTags']
+
+
+//extraHooks, run預設未給之三個回調函數(空函數), 需記錄全部回調之呼叫次數者另給; run不可預設全給, 否則「回調函數未給」之路徑無測試走到
+let extraHooks = () => {
+    return { getRefreshState: () => {}, getRefreshTable: () => {}, getBeforeUpdateTableTags: () => {} }
+}
+
+
+//zeros, 各回調函數皆未被呼叫
+let zeros = () => {
+    let r = {}
+    for (let k of hookNames) {
+        r[k] = 0
+    }
+    return r
+}
+
+
+//genRun, 建立run: 建構前端並收集事件(rawErrors為error事件之原值, hooks為有給之回調函數之呼叫次數), 建構者記入cleans供測完停止
+let genRun = (WServWebdataClient, cleans) => {
+    return (cl, opt = {}) => {
+        let log = { recv: [], errors: [], rawErrors: [], after: 0, fapi: null, cl: null, hooks: {} }
+        let kp = {
+            getToken: () => 'tok',
+            getServerMethods: (r) => {
+                log.fapi = r
+            },
+            recvData: (r) => {
+                log.recv.push({ tableName: r.tableName, data: r.data })
+            },
+            getAfterUpdateTableTags: () => {
+                log.after++
+            },
+            ...opt,
+        }
+        //getToken亦記錄呼叫次數(nToken): 本套件於停止後不再呼叫使用端之函數, 停止後才開始之本套件請求連getToken亦不呼叫
+        let getToken = kp.getToken
+        log.nToken = 0
+        kp.getToken = (...args) => {
+            log.nToken++
+            return getToken(...args)
+        }
+        for (let k of hookNames) {
+            let fn = kp[k]
+            if (typeof fn !== 'function') {
+                continue //未給者維持未給, 走本套件「回調函數未給」之路徑
+            }
+            log.hooks[k] = 0
+            kp[k] = (...args) => {
+                log.hooks[k]++
+                return fn(...args)
+            }
+        }
+        cl = new WServWebdataClient(cl, kp)
+        cl.on('error', (err) => {
+            log.rawErrors.push(err)
+            log.errors.push(typeof err === 'string' ? err : String(err && err.message ? err.message : (err && err.msg) || err))
+        })
+        cleans.push(() => {
+            cl.clearBroadcast()
+            cl.clearSync()
+        })
+        log.cl = cl
+        return log
+    }
+}
+
+
+//genReply, 假後端之回應: fail有給者以其值拒絕(模擬伺服器已停止等傳輸失敗); 輪詢回poll()之值(預設[], 可給含mode為broadcast之訊息以製造推播); 函數清單回funcs, 時間戳回tags, 其餘回一筆資料
+let genReply = ({ funcs, tags, fail, poll }) => {
+    return (func) => {
+        if (fail[func] !== undefined) {
+            return Promise.reject(fail[func])
+        }
+        if (func === '[sys:polling]') {
+            return poll()
+        }
+        if (func === '[sys:getFuncList]') {
+            return { state: 'success', msg: funcs }
+        }
+        if (func === '[sys:getTableTags]') {
+            return { state: 'success', msg: { mode: 'syncKpTable', data: tags } }
+        }
+        return { state: 'success', msg: [{ id: `row-of-${func}` }] }
+    }
+}
+
+
+//linkCtl, 可控之假後端(不支援opt.signal之通訊物件): sent記錄每次送出之函數名, delay為各函數之回應延遲(毫秒, 預設5), fail為各函數之傳輸失敗(其值為拒絕值, 模擬伺服器已停止), poll為每次輪詢之回應
+let linkCtl = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fail = {}, poll = () => [] } = {}) => {
+    let sent = []
+    let reply = genReply({ funcs, tags, fail, poll })
+    let cl = evem()
+    cl.execute = async (func) => {
+        sent.push(func)
+        await sleep(delay[func] !== undefined ? delay[func] : 5)
+        return reply(func)
+    }
+    return { cl, sent }
+}
+
+
+//linkSig, 同linkCtl但依w-converhp 2.1.8之契約處理execute之第4參數opt.signal: 呼叫時已中止者以signal.reason拒絕且不送出(不記入sent); 在途時中止者立即以signal.reason拒絕, 不再等待回應;
+//sigs與sent同序, 記錄每次送出之{func, signal}(未給signal者為null)
+let linkSig = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fail = {}, poll = () => [] } = {}) => {
+    let sent = []
+    let sigs = []
+    let reply = genReply({ funcs, tags, fail, poll })
+    let cl = evem()
+    cl.execute = (func, input, cbProgress, opt) => {
+        let signal = opt && opt.signal ? opt.signal : null
+        if (signal && signal.aborted) {
+            return Promise.reject(signal.reason)
+        }
+        sent.push(func)
+        sigs.push({ func, signal })
+        return new Promise((resolve, reject) => {
+            let onAbort = () => {
+                clearTimeout(t)
+                reject(signal.reason)
+            }
+            let t = setTimeout(() => {
+                if (signal) {
+                    signal.removeEventListener('abort', onAbort)
+                }
+                Promise.resolve()
+                    .then(() => reply(func))
+                    .then(resolve, reject)
+            }, delay[func] !== undefined ? delay[func] : 5)
+            if (signal) {
+                signal.addEventListener('abort', onAbort)
+            }
+        })
+    }
+    return { cl, sent, sigs }
+}
+
+
+export { sleep, hookNames, extraHooks, zeros, genRun, linkCtl, linkSig }
