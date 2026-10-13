@@ -156,14 +156,15 @@ describe('unit-authorizeExec', function() {
             assert.strict.deepEqual(r, { state: 'success', msg: [] })
         })
 
-        //R25: useDbOrm=true時kpOrm須為物件, 於建立資料通道之前拋錯(原為建構中emit而遺失)
-        it('useDbOrm=true而kpOrm非物件時拋錯, 且不建立資料通道', function() {
+        //R25: useDbOrm=true時kpOrm須為物件, 於建構任何元件之前拋錯(原為建構中emit而遺失)
+        it('useDbOrm=true而kpOrm非物件時拋錯, 且未建構任何元件', function() {
             for (let v of [undefined, 'x', [], 1]) {
                 assert.throws(() => {
                     mk(allow, { kpOrm: v })
                 }, { message: 'invalid opt.kpOrm when useDbOrm=true' }, `kpOrm=${JSON.stringify(v)}`)
                 let inst = insts[insts.length - 1]
-                assert.strict.equal(inst.listeners('execute').length, 1, '只剩廣播之監聽器') //資料通道之監聽器未註冊
+                assert.strict.equal(inst.listeners('execute').length, 0, '未註冊任何execute監聽')
+                assert.strict.equal(inst.broadcast, undefined, '未擴充廣播')
             }
         })
 
@@ -239,16 +240,16 @@ describe('unit-authorizeExec', function() {
             }, { message: 'table operation[prototype.select] can not be bound by the client' })
         })
 
-        //R12
+        //R12: useDbOrm=false時沒有表操作, 表名命名空間之規則不適用
         it('useDbOrm=false時kpFunExt使用表操作之名稱不拋錯且可呼叫', async function() {
             let inst = build({
                 fpTableTags,
                 useDbOrm: false,
                 tableNamesExec: ['tabA'],
-                kpFunExt: { 'tabA.save': () => 'saved', 'tabA': () => 'tab' },
+                kpFunExt: { 'tabA.save': () => 'saved', 'tabB': () => 'tab' },
             })
             assert.strict.deepEqual(await exec(inst, 'tabA.save'), { state: 'success', msg: 'saved' })
-            assert.strict.deepEqual(await exec(inst, 'tabA'), { state: 'success', msg: 'tab' })
+            assert.strict.deepEqual(await exec(inst, 'tabB'), { state: 'success', msg: 'tab' })
         })
 
         //R12＋R16: 命名檢查與函數查找只認自有屬性, 前端可綁定之Object.prototype名稱(非lodash略過者)不得被誤判

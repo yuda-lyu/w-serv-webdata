@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li></ul>
     
 </nav>
 
@@ -74,13 +74,14 @@
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>瀏覽器端之資料控制與同步器</p></li></ul></dd>
+    <dd class="tag-description"><ul class="dummy"><li><p>瀏覽器端之資料控制與同步器</p>
+<p>設定錯誤(getServerMethods、recvData非函數，或getToken與各回調函數有給但非函數)於建構任何元件之前拋錯。連線後先取得可呼叫函數清單並綁定，綁定完成前收到之同步廣播一律略過，綁定後即以當下全部資料表時間戳同步，不會遺漏。各回調函數拋錯時改發出error事件，不中斷同步。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataClient.mjs.html">WServWebdataClient.mjs</a>, <a href="WServWebdataClient.mjs.html#line159">line 159</a>
+        <a href="WServWebdataClient.mjs.html">WServWebdataClient.mjs</a>, <a href="WServWebdataClient.mjs.html#line172">line 172</a>
     </li></ul></dd>
     
 
@@ -293,7 +294,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入取得使用者token的回調函數，預設()=&gt;''</p></td>
+            <td class="description last"><p>輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=&gt;''</p></td>
         </tr>
 
     
@@ -329,7 +330,7 @@
                 </td>
             
 
-            <td class="description last"><p>輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將放入物件當中，key為函數名而值為函數，並通過回調函數提供該物件</p></td>
+            <td class="description last"><p>輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將依函數名之路徑放入物件當中(例如'tabA.select'放入為obj.tabA.select)，並通過回調函數提供該物件，必填，非函數時拋錯</p></td>
         </tr>
 
     
@@ -365,7 +366,167 @@
                 </td>
             
 
-            <td class="description last"><p>輸入取得變更表資料的回調函數</p></td>
+            <td class="description last"><p>輸入取得變更表資料的回調函數，必填，非函數時拋錯</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>getRefreshState</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>null</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入取得資料表時間戳是否需更新之回調函數，有給但非函數時拋錯，預設null</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>getRefreshTable</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>null</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入取得資料表即將更新之回調函數，有給但非函數時拋錯，預設null</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>getBeforeUpdateTableTags</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>null</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入取得更新資料表時間戳前之回調函數，有給但非函數時拋錯，預設null</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>getAfterUpdateTableTags</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>null</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入取得更新資料表時間戳後之回調函數，有給但非函數時拋錯，預設null</p></td>
         </tr>
 
     
@@ -457,7 +618,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 06:51:09 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 08:36:14 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

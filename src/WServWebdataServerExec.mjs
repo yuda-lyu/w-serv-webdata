@@ -3,8 +3,7 @@ import each from 'lodash-es/each.js'
 import map from 'lodash-es/map.js'
 import uniq from 'lodash-es/uniq.js'
 import keys from 'lodash-es/keys.js'
-import toPath from 'lodash-es/toPath.js'
-import cloneDeep from 'lodash-es/cloneDeep.js'
+import isobj from 'wsemi/src/isobj.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
@@ -16,17 +15,61 @@ import arrPull from 'wsemi/src/arrPull.mjs'
 import pm2resolve from 'wsemi/src/pm2resolve.mjs'
 import evEmit from 'wsemi/src/evEmit.mjs'
 import getErrorMessage from 'wsemi/src/getErrorMessage.mjs'
+import { getFuncPath, isBindableFuncPath, findFuncPathConflict } from './funcPath.mjs'
 
 
-function WServWebdataServerExec(instWConverServer, opt = {}) {
+//isGiven, 有給(不為undefined與null), 有給卻無效之設定須拋錯, 不可靜默改用預設
+let isGiven = (v) => {
+    return v !== undefined && v !== null
+}
 
-    //check
-    if (!iseobj(instWConverServer)) {
-        throw new Error('invalid instWConverServer')
-    }
 
-    //getUserIdByToken, 由外部提供呼叫函數, 提供token回傳使用userID
+//buildFuncs
+function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
+    let funcs = {}
+
+    //存取[ORM]資料表函數
+    each(tableNames, (tableName) => { //通過ds取得資料表清單
+        each(methods, (methodName) => {
+
+            //pathName, 各資料表之各ORM方法
+            let pathName = `${tableName}.${methodName}`
+
+            //bind
+            funcs[pathName] = async function(userId, input) { //第1參數需為userId
+
+                //authorizeExec, 預設拒絕, 回傳嚴格等於true才放行, 拒絕時不呼叫operOrm; 授權函數拋錯或reject時其值原樣轉出, 經execFun之pm2resolve成為回應之msg
+                let b = await authorizeExec({ userId, tableName, methodName, input })
+                if (b !== true) {
+                    return Promise.reject('permission denied') //須reject字串, 若用Error物件, 序列化後前端收到的是'Error: permission denied'
+                }
+
+                //呼叫ORM的泛用接口procCommon
+                let r = await operOrm(userId, tableName, methodName, input)
+
+                return r
+            }
+
+        })
+    })
+
+    return funcs
+}
+
+
+/**
+ * 解析與檢查資料通道之設定, 無副作用(不呼叫使用端函數、不修改輸入), 設定錯誤時拋錯
+ *
+ * @param {Object} [opt={}] 輸入設定物件, 鍵同WServWebdataServerExec之opt
+ * @returns {Object} 回傳正規化後之設定, 另含表操作之函數名陣列pathNames
+ */
+function parseOpt(opt = {}) {
+
+    //getUserIdByToken, 由外部提供呼叫函數, 提供token回傳使用userID; 有給卻非函數時拋錯, 否則全部呼叫會靜默變成匿名
     let getUserIdByToken = get(opt, 'getUserIdByToken', null)
+    if (isGiven(getUserIdByToken) && !isfun(getUserIdByToken)) {
+        throw new Error('invalid opt.getUserIdByToken')
+    }
     if (!isfun(getUserIdByToken)) {
         getUserIdByToken = async () => {
             return ''
@@ -48,13 +91,19 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         }
     }
 
-    //tableNames, 指定能被呼叫的表名, 各表名需隸屬於ORM, 才能被ORM的泛用接口procCommon處理
+    //tableNames, 指定能被呼叫的表名, 各表名需隸屬於ORM, 才能被ORM的泛用接口procCommon處理; 訊息用WServWebdataServer對外之參數名
     let tableNames = []
     if (useDbOrm) {
         tableNames = get(opt, 'tableNames', null)
         if (!isarr(tableNames)) {
-            throw new Error('invalid opt.tableNamesExec when useDbOrm=true') //訊息用WServWebdataServer對外之參數名
+            throw new Error('invalid opt.tableNamesExec when useDbOrm=true')
         }
+        each(tableNames, (v, i) => {
+            if (!isestr(v)) {
+                throw new Error(`invalid opt.tableNamesExec[${i}] when useDbOrm=true`)
+            }
+        })
+        tableNames = [...tableNames] //快照, 避免建構期間外部修改
     }
 
     //methods
@@ -68,6 +117,12 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         else if (!isarr(methods)) {
             throw new Error('invalid opt.methodsExec when useDbOrm=true') //有給但非陣列時拋錯, 不可靜默改用預設而開放寫入方法
         }
+        each(methods, (v, i) => {
+            if (!isestr(v)) {
+                throw new Error(`invalid opt.methodsExec[${i}] when useDbOrm=true`)
+            }
+        })
+        methods = [...methods] //快照, 避免建構期間外部修改
     }
 
     //authorizeExec, 表操作之授權函數, 資料通道是資料表直接開放給前端之處, 表操作之授權在此, operOrm可能亦被伺服端程式呼叫而分不出呼叫來源故不負責授權
@@ -79,96 +134,112 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         }
     }
 
-    //kpFunExt, 使用端提供之擴充函數
+    //kpFunExt, 使用端提供之擴充函數; 有給須為純物件且各值須為函數, 否則拋錯(例如陣列、模組命名空間物件原會被靜默捨棄)
     let kpFunExt = get(opt, 'kpFunExt', null)
+    if (isGiven(kpFunExt) && !isobj(kpFunExt)) {
+        throw new Error('invalid opt.kpFunExt')
+    }
+    if (!isobj(kpFunExt)) {
+        kpFunExt = {}
+    }
+    each(kpFunExt, (v, k) => {
+        if (!isfun(v)) {
+            throw new Error(`invalid opt.kpFunExt[${k}]`)
+        }
+    })
 
     //kpFunSys, 本套件內部提供之系統函數(例如[sys:getTableTags]), 與kpFunExt分開傳入, 不受kpFunExt之命名限制
     let kpFunSys = get(opt, 'kpFunSys', null)
 
-    //buildFuncs
-    function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
-        let funcs = {}
-
-        //存取[ORM]資料表函數
-        each(tableNames, (tableName) => { //通過ds取得資料表清單
+    //pathNames, 表操作之函數名
+    let pathNames = []
+    if (useDbOrm) {
+        each(tableNames, (tableName) => {
             each(methods, (methodName) => {
-
-                //pathName, 各資料表之各ORM方法
-                let pathName = `${tableName}.${methodName}`
-
-                //bind
-                funcs[pathName] = async function(userId, input) { //第1參數需為userId
-
-                    //authorizeExec, 預設拒絕, 回傳嚴格等於true才放行, 拒絕時不呼叫operOrm; 授權函數拋錯或reject時其值原樣轉出, 經execFun之pm2resolve成為回應之msg
-                    let b = await authorizeExec({ userId, tableName, methodName, input })
-                    if (b !== true) {
-                        return Promise.reject('permission denied') //須reject字串, 若用Error物件, 序列化後前端收到的是'Error: permission denied'
-                    }
-
-                    //呼叫ORM的泛用接口procCommon
-                    let r = await operOrm(userId, tableName, methodName, input)
-
-                    return r
-                }
-
+                pathNames.push(`${tableName}.${methodName}`)
             })
         })
-
-        return funcs
+        pathNames = uniq(pathNames)
     }
+
+    //check, 前端以函數名之路徑綁定(見funcPath.mjs與WServWebdataClient之bindFuncs), 函數名須可綁定
+    each(pathNames, (pathName) => {
+        if (!isBindableFuncPath(pathName)) {
+            throw new Error(`table operation[${pathName}] can not be bound by the client`)
+        }
+    })
+
+    //topsTable, 表操作之頂層名(表名), 前端綁定為$fapi.表名.方法, 此頂層名保留給表操作
+    let topsTable = uniq(map(pathNames, (pathName) => {
+        return getFuncPath(pathName)[0]
+    }))
+
+    each(kpFunExt, (v, k) => {
+
+        //check, 系統函數之名稱保留
+        if (k.startsWith('[sys:')) {
+            throw new Error(`kpFunExt[${k}] can not use the reserved prefix [sys:`)
+        }
+
+        //check, 函數名須可綁定
+        if (!isBindableFuncPath(k)) {
+            throw new Error(`kpFunExt[${k}] can not be bound by the client`)
+        }
+
+        //check, kpFunExt之頂層名不得為表名, 否則前端綁定時覆蓋該表之表操作(同名時更會覆蓋伺服端之表操作而脫離authorizeExec), 或使kpFunExt看似表操作卻不經authorizeExec
+        let p0 = getFuncPath(k)[0]
+        if (topsTable.includes(p0)) {
+            throw new Error(`kpFunExt[${k}] conflicts with the table operations of table[${p0}]`)
+        }
+
+    })
+
+    //check, 不同函數名不得綁到同一路徑(別名), 亦不得互為前綴(葉與父), 否則前端綁定時互相覆蓋, 涵蓋表操作彼此與kpFunExt彼此
+    let r = findFuncPathConflict([...pathNames, ...keys(kpFunExt)])
+    if (r !== null) {
+        let from = (name) => {
+            return pathNames.includes(name) ? 'table operation' : 'kpFunExt'
+        }
+        throw new Error(`${from(r[1])}[${r[1]}] conflicts with ${from(r[0])}[${r[0]}] on the client binding path`)
+    }
+
+    return {
+        getUserIdByToken,
+        useDbOrm,
+        operOrm,
+        tableNames,
+        methods,
+        authorizeExec,
+        kpFunExt,
+        kpFunSys,
+        pathNames,
+    }
+}
+
+
+function WServWebdataServerExec(instWConverServer, opt = {}) {
+
+    //check
+    if (!iseobj(instWConverServer)) {
+        throw new Error('invalid instWConverServer')
+    }
+
+    //parseOpt, 設定之檢查集中於此(單一擁有者), WServWebdataServer於建構任何元件之前亦先呼叫
+    let { getUserIdByToken, useDbOrm, operOrm, tableNames, methods, authorizeExec, kpFunExt, kpFunSys } = parseOpt(opt)
 
     //funcs
     let funcs = {}
     if (useDbOrm) {
-
-        //cloneDeep
-        tableNames = cloneDeep(tableNames)
 
         //buildFuncs
         funcs = buildFuncs(tableNames, methods, operOrm, authorizeExec)
         // console.log('funcs(buildFuncs)', funcs)
 
     }
-    //namesGuard, 前端以lodash之set依函數名綁定(見WServWebdataClient之bindFuncs), set會略過路徑中之此三者而無法綁定
-    let namesGuard = ['__proto__', 'constructor', 'prototype']
-
-    //getBindPath, 取前端綁定函數時之路徑(與lodash之set同一解析, 例如'tabA[select]'亦為['tabA','select']), 無法綁定者拋錯
-    let getBindPath = (name, from) => {
-        let ps = toPath(name)
-        if (ps.length === 0) {
-            throw new Error(`${from}[${name}] can not be bound by the client`)
-        }
-        each(ps, (p) => {
-            if (namesGuard.includes(p)) {
-                throw new Error(`${from}[${name}] can not be bound by the client`)
-            }
-        })
-        return ps
-    }
-
-    //topsTable, 表操作之頂層名(表名), 前端綁定為$fapi.表名.方法, 此頂層名保留給表操作
-    let topsTable = uniq(map(keys(funcs), (pathName) => {
-        return getBindPath(pathName, 'table operation')[0]
-    }))
-
-    if (iseobj(kpFunExt)) { //add ext. async funcs
-        each(kpFunExt, (v, k) => {
-
-            //check, 系統函數之名稱保留
-            if (k.startsWith('[sys:')) {
-                throw new Error(`kpFunExt[${k}] can not use the reserved prefix [sys:`)
-            }
-
-            //check, kpFunExt之頂層名不得為表名, 否則前端綁定時覆蓋該表之表操作(同名時更會覆蓋伺服端之表操作而脫離authorizeExec), 或使kpFunExt看似表操作卻不經authorizeExec
-            let ps = getBindPath(k, 'kpFunExt')
-            if (topsTable.includes(ps[0])) {
-                throw new Error(`kpFunExt[${k}] conflicts with the table operations of table[${ps[0]}]`)
-            }
-
-            funcs[k] = v
-        })
-        // console.log('funcs(kpFunExt)', funcs)
-    }
+    each(kpFunExt, (v, k) => { //add ext. async funcs
+        funcs[k] = v
+    })
+    // console.log('funcs(kpFunExt)', funcs)
     if (iseobj(kpFunSys)) { //add sys. funcs
         each(kpFunSys, (v, k) => {
             funcs[k] = v
@@ -279,4 +350,5 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
 }
 
 
+export { parseOpt }
 export default WServWebdataServerExec

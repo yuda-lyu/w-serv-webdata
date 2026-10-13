@@ -1,10 +1,10 @@
 import get from 'lodash-es/get.js'
-import set from 'lodash-es/set.js'
 import each from 'lodash-es/each.js'
 import last from 'lodash-es/last.js'
 import dropRight from 'lodash-es/dropRight.js'
 import genPm from 'wsemi/src/genPm.mjs'
 import evem from 'wsemi/src/evem.mjs'
+import evEmit from 'wsemi/src/evEmit.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
@@ -12,17 +12,30 @@ import isestr from 'wsemi/src/isestr.mjs'
 import ispm from 'wsemi/src/ispm.mjs'
 import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
 import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
+import { bindFuncByPath, getFuncByPath } from './funcPath.mjs'
+
+
+//isGiven, 有給(不為undefined與null), 有給卻無效之設定須拋錯, 不可靜默改用預設或忽略
+let isGiven = (v) => {
+    return v !== undefined && v !== null
+}
 
 
 /**
  * 瀏覽器端之資料控制與同步器
  *
+ * 設定錯誤(getServerMethods、recvData非函數，或getToken與各回調函數有給但非函數)於建構任何元件之前拋錯。連線後先取得可呼叫函數清單並綁定，綁定完成前收到之同步廣播一律略過，綁定後即以當下全部資料表時間戳同步，不會遺漏。各回調函數拋錯時改發出error事件，不中斷同步。
+ *
  * @class
  * @param {Object} instWConverClient 輸入通訊服務實體物件，可使用例如WConverhpClient等建立
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，預設()=>''
- * @param {Function} opt.getServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將放入物件當中，key為函數名而值為函數，並通過回調函數提供該物件
- * @param {Function} opt.recvData 輸入取得變更表資料的回調函數
+ * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=>''
+ * @param {Function} opt.getServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將依函數名之路徑放入物件當中(例如'tabA.select'放入為obj.tabA.select)，並通過回調函數提供該物件，必填，非函數時拋錯
+ * @param {Function} opt.recvData 輸入取得變更表資料的回調函數，必填，非函數時拋錯
+ * @param {Function} [opt.getRefreshState=null] 輸入取得資料表時間戳是否需更新之回調函數，有給但非函數時拋錯，預設null
+ * @param {Function} [opt.getRefreshTable=null] 輸入取得資料表即將更新之回調函數，有給但非函數時拋錯，預設null
+ * @param {Function} [opt.getBeforeUpdateTableTags=null] 輸入取得更新資料表時間戳前之回調函數，有給但非函數時拋錯，預設null
+ * @param {Function} [opt.getAfterUpdateTableTags=null] 輸入取得更新資料表時間戳後之回調函數，有給但非函數時拋錯，預設null
  * @returns {Object} 回傳事件物件，可監聽error事件
  * @example
  *
@@ -158,6 +171,7 @@ import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
  */
 function WServWebdataClient(instWConverClient, opt = {}) {
     let kpExec = {}
+    let isBound = false //可呼叫函數是否已綁定, 綁定完成前略過同步廣播
 
     //check
     if (!iseobj(instWConverClient)) {
@@ -168,33 +182,57 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         throw new Error(`instWConverClient is not an EventEmitter`)
     }
 
-    //getToken
+    //getToken, 有給須為函數
     let getToken = get(opt, 'getToken', null)
+    if (isGiven(getToken) && !isfun(getToken)) {
+        throw new Error('invalid opt.getToken')
+    }
     if (!isfun(getToken)) {
         getToken = () => {
             return ''
         }
     }
 
-    //getServerMethods
+    //getServerMethods, 必填, 於建構任何元件之前拋錯(原為建構中emit, 呼叫端此時尚未能監聽而遺失)
     let getServerMethods = get(opt, 'getServerMethods', null)
     if (!isfun(getServerMethods)) {
-        instWConverClient.emit('error', 'invalid opt.getServerMethods')
-        return instWConverClient
+        throw new Error('invalid opt.getServerMethods')
     }
 
-    //recvData
+    //recvData, 必填
     let recvData = get(opt, 'recvData', null)
     if (!isfun(recvData)) {
-        instWConverClient.emit('error', 'invalid opt.recvData')
-        return instWConverClient
+        throw new Error('invalid opt.recvData')
     }
 
-    //getRefreshState, getRefreshTable, getBeforeUpdateTableTags, getAfterUpdateTableTags
-    let getRefreshState = get(opt, 'getRefreshState', null)
-    let getRefreshTable = get(opt, 'getRefreshTable', null)
-    let getBeforeUpdateTableTags = get(opt, 'getBeforeUpdateTableTags', null)
-    let getAfterUpdateTableTags = get(opt, 'getAfterUpdateTableTags', null)
+    //getRefreshState, getRefreshTable, getBeforeUpdateTableTags, getAfterUpdateTableTags, 有給須為函數
+    let kpHook = {}
+    each(['getRefreshState', 'getRefreshTable', 'getBeforeUpdateTableTags', 'getAfterUpdateTableTags'], (k) => {
+        let v = get(opt, k, null)
+        if (isGiven(v) && !isfun(v)) {
+            throw new Error(`invalid opt.${k}`)
+        }
+        kpHook[k] = v
+    })
+    let { getRefreshState, getRefreshTable, getBeforeUpdateTableTags, getAfterUpdateTableTags } = kpHook
+
+    //emitError, 本套件之error事件經evEmit發出, 隔離監聽者之拋錯
+    let emitError = (err) => {
+        evEmit(instWConverClient, 'error', [err])
+    }
+
+    //callHook, 呼叫使用端之回調函數, 拋錯時改發出error事件, 不中斷本套件之流程(例如refreshTable之pm須照常結束)
+    let callHook = (fn, ...args) => {
+        if (!isfun(fn)) {
+            return
+        }
+        try {
+            fn(...args)
+        }
+        catch (err) {
+            emitError(err)
+        }
+    }
 
     //擴充同步資料功能
     instWConverClient = new WSyncWebdataClient(instWConverClient)
@@ -262,14 +300,17 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     function bindFuncs(funcs) {
         //將函數清單自動綁定至物件kpExec
 
-        //kpExec
+        //kpExec, 依函數名之路徑綁定, 解析與後端之函數名檢查同一套(見funcPath.mjs), 只沿自有屬性前進
         kpExec = {}
         each(funcs, (func) => {
-            set(kpExec, func, executeShell(func))
+            bindFuncByPath(kpExec, func, executeShell(func))
         })
 
+        //isBound, 先標記已綁定再交給使用端, 使用端回調函數拋錯不影響其後之同步
+        isBound = true
+
         //getServerMethods
-        getServerMethods(kpExec)
+        callHook(getServerMethods, kpExec)
 
     }
 
@@ -280,8 +321,11 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         if (get(data, 'mode') === 'syncKpTable') {
             // console.log('syncKpTable', data)
 
-            //updateTableTags
+            //updateTableTags, 其回傳之promise須接catch, 否則reject時成為unhandledRejection
             instWConverClient.updateTableTags(get(data, 'data'))
+                .catch((err) => {
+                    emitError(err)
+                })
 
         }
 
@@ -317,13 +361,18 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         //core
         core()
             .catch((err) => {
-                instWConverClient.emit('error', err)
+                emitError(err)
             })
 
     })
 
     instWConverClient.on('broadcast', function(data) {
         // console.log('instWConverClient: broadcast', data)
+
+        //check, 綁定完成前略過同步廣播: 此時尚無表操作可取資料, 若照常處理會把該表當成已取得空資料並記下時間戳, 綁定後便不再重抓; 綁定後core會以[sys:getTableTags]取得當下全部時間戳, 不會遺漏
+        if (!isBound) {
+            return
+        }
 
         //updateSyncTable
         updateSyncTable(data)
@@ -336,41 +385,33 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     //refreshState
     instWConverClient.on('refreshState', (msg) => {
         // console.log('refreshState needToRefresh', msg.needToRefresh)
-        if (isfun(getRefreshState)) {
-            getRefreshState(msg)
-        }
+        callHook(getRefreshState, msg)
     })
 
-    //refreshTable, 收到資料表時間戳有變更通知
+    //refreshTable, 收到資料表時間戳有變更通知, 各路徑皆須結束input.pm, 否則該次updateTableTags懸置
     instWConverClient.on('refreshTable', (input) => {
         // console.log('refreshTable', input)
 
-        //check
-        if (!iseobj(kpExec[input.tableName])) {
-            instWConverClient.emit('error', `invalid kpExec[${input.tableName}]`)
+        //exec, 以與bindFuncs相同之路徑解析取得該表之表操作物件
+        let exec = getFuncByPath(kpExec, input.tableName)
+
+        //check, 已綁定而缺表(伺服端已檢查同步表須有表操作select, 僅前後端版本不一致等情形會發生), 比照select失敗以空資料結束pm, 再發出error事件
+        if (!iseobj(exec)) {
+            input.pm.resolve([])
+            emitError(`invalid kpExec[${input.tableName}]`)
             return
         }
 
         //getRefreshTable
-        if (isfun(getRefreshTable)) {
-            getRefreshTable(input)
-        }
-
-        //exec
-        let exec = get(kpExec, input.tableName)
-
-        //check
-        if (!iseobj(exec)) {
-            console.log(`kpExec[${input.tableName}] is not an effective object`)
-            return
-        }
+        callHook(getRefreshTable, input)
 
         //funSelect
         let funSelect = get(exec, 'select')
 
         //check
         if (!isfun(funSelect)) {
-            console.log(`kpExec[${input.tableName}].select is not a function`)
+            input.pm.resolve([])
+            emitError(`kpExec[${input.tableName}].select is not a function`)
             return
         }
 
@@ -393,22 +434,18 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         // console.log('getData', data)
 
         //recvData
-        recvData(data)
+        callHook(recvData, data)
 
     })
 
     //beforeUpdateTableTags, afterUpdateTableTags, beforePollingTableTags, afterPollingTableTags
     instWConverClient.on('beforeUpdateTableTags', (msg) => {
         // console.log('client: beforeUpdateTableTags', msg)
-        if (isfun(getBeforeUpdateTableTags)) {
-            getBeforeUpdateTableTags(msg)
-        }
+        callHook(getBeforeUpdateTableTags, msg)
     })
     instWConverClient.on('afterUpdateTableTags', (msg) => {
         // console.log('client: afterUpdateTableTags', msg)
-        if (isfun(getAfterUpdateTableTags)) {
-            getAfterUpdateTableTags(msg)
-        }
+        callHook(getAfterUpdateTableTags, msg)
     })
 
     return instWConverClient

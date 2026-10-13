@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li></ul>
     
 </nav>
 
@@ -80,18 +80,18 @@
 <li>資料通道是資料表直接開放給前端之處，表操作之授權在此，由authorizeExec負責。採預設拒絕，回傳值須嚴格等於true才放行，回傳其他值(例如false、1、'true'、undefined)一律回應'permission denied'且不呼叫operOrm。operOrm可能亦被伺服端程式呼叫而分不出呼叫來源，故不負責授權。kpFunExt之函數不經authorizeExec，須各自把關。</li>
 <li>各關卡(getUserIdByToken、authorizeExec、operOrm、kpFunExt之函數)拋錯或reject時，其值原樣成為前端收到之拒絕值，故欲回傳語系鍵須reject字串，Error物件經序列化後前端收到'Error: 訊息'字串。各關卡之回傳值與拒絕值須為可序列化之格式，此為設計要求，不支援之格式(例如循環參照、BigInt)本就不在設計範圍內，前端必然失敗。</li>
 <li>僅getUserIdByToken之拒絕會發出error事件(其值可能為undefined或null)；authorizeExec、operOrm與kpFunExt之拒絕不發出error事件，需於伺服端紀錄者請於函數內自行處理。</li>
-<li>authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫select不帶參數，故tableNamesSync內之表其select須對所有連線者放行，否則前端該表會被清空。需逐筆控管可見範圍者請改用kpFunExt提供。</li>
+<li>authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫該表之表操作select且不帶參數，故tableNamesSync內之表須在tableNamesExec中、methodsExec須含'select'(kpFunExt提供之同名函數不算)，否則建構時拋錯；其select須對所有連線者放行，否則前端該表會被清空。需逐筆控管可見範圍者請改用kpFunExt提供且不列入同步。</li>
 <li>authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。</li>
 <li>getUserIdByToken須完整驗證token(不可只解碼)，其token取自請求內容，與通訊層(例如w-converhp之verifyConn)所驗證者為不同來源。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。</li>
-<li>函數名須能被前端綁定(前端以lodash之set依函數名綁定)：路徑各段不得為'<strong>proto</strong>'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)。違反者於建構時拋錯。</li>
-<li>設定錯誤於建構時拋錯，拋錯前會先停止廣播之計時器。設定錯誤包含：useDbOrm=true而缺operOrm、tableNamesExec、authorizeExec，或kpOrm非物件，或methodsExec有給但非陣列；未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync。</li>
+<li>函數名須能被前端綁定(前端依函數名之路徑綁定，解析同lodash之toPath，例如'tabA[select]'即['tabA','select'])：路徑不得為空、不得有空段、各段不得為'<strong>proto</strong>'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)；不同函數名(含表操作與kpFunExt)不得解析為同一路徑(例如'a.b'與'a[&quot;b&quot;]')，亦不得互為前綴(例如'a'與'a.b')。違反者於建構時拋錯。</li>
+<li>設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播之計時器、移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充，不可再以同一事件物件重新建構。</li>
 </ol></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line334">line 334</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line473">line 473</a>
     </li></ul></dd>
     
 
@@ -620,12 +620,12 @@ setTimeout(() => {
             
                 <td class="default">
                 
-                    <code>{}</code>
+                    <code>null</code>
                 
                 </td>
             
 
-            <td class="description last"><p>輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立，useDbOrm為true時須為物件，否則拋錯，預設{}</p></td>
+            <td class="description last"><p>輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立。useDbOrm為true時必填且須為物件，否則拋錯；為空物件時不同步，預設null</p></td>
         </tr>
 
     
@@ -660,12 +660,12 @@ setTimeout(() => {
             
                 <td class="default">
                 
-                    <code>{}</code>
+                    <code>null</code>
                 
                 </td>
             
 
-            <td class="description last"><p>輸入各資料表的操作通用接口物件，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由kpFunExt提供的函數，就為全部可由前端執行的函數。前端呼叫表操作時須先通過authorizeExec授權才會呼叫operOrm，operOrm不負責授權，預設{}</p></td>
+            <td class="description last"><p>輸入各資料表的操作通用接口函數，用以提供操作由tableNamesExec指定資料表的例如'select'、'insert'、'save'、'del'函數。加上由kpFunExt提供的函數，就為全部可由前端執行的函數。前端呼叫表操作時須先通過authorizeExec授權才會呼叫operOrm，operOrm不負責授權。useDbOrm為true時必填，預設null</p></td>
         </tr>
 
     
@@ -700,12 +700,12 @@ setTimeout(() => {
             
                 <td class="default">
                 
-                    <code>[]</code>
+                    <code>null</code>
                 
                 </td>
             
 
-            <td class="description last"><p>輸入指定能被操作的表名陣列，預設[]</p></td>
+            <td class="description last"><p>輸入指定能被操作的表名陣列，各元素須為非空字串。useDbOrm為true時必填(可為空陣列)，預設null</p></td>
         </tr>
 
     
@@ -740,12 +740,12 @@ setTimeout(() => {
             
                 <td class="default">
                 
-                    <code>[]</code>
+                    <code>null</code>
                 
                 </td>
             
 
-            <td class="description last"><p>輸入指定能被同步的表名陣列，預設[]</p></td>
+            <td class="description last"><p>輸入指定能被同步的表名陣列，各元素須為非空字串，各表須在kpOrm中且可監聽change事件，並須有表操作select(見上方第4點)，未給時不同步，預設null</p></td>
         </tr>
 
     
@@ -785,7 +785,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入指定綁定操作器的方式陣列，可選'select'、'insert'、'save'、'del'、'delAll'，useDbOrm為true時若有給須為陣列，否則拋錯，預設['select', 'insert', 'save', 'del']</p></td>
+            <td class="description last"><p>輸入指定綁定操作器的方式陣列，各元素須為非空字串，可選'select'、'insert'、'save'、'del'、'delAll'。未給或null時取預設['select', 'insert', 'save', 'del']；useDbOrm為true時若有給須為陣列，否則拋錯</p></td>
         </tr>
 
     
@@ -865,7 +865,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入取得使用者ID的回調函數，傳入參數為前端提供之token字串，可使用sync或async函數，回傳非字串時視為空字串，拋錯或reject時拒絕該次呼叫，規則詳見上方說明，預設async()=&gt;''</p></td>
+            <td class="description last"><p>輸入取得使用者ID的回調函數，傳入參數為前端提供之token字串，可使用sync或async函數，回傳非字串時視為空字串，拋錯或reject時拒絕該次呼叫，規則詳見上方說明；有給但非函數時拋錯，預設async()=&gt;''</p></td>
         </tr>
 
     
@@ -905,7 +905,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入額外擴充執行函數物件，key為函數名而值為函數，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，命名限制詳見上方說明，預設null</p></td>
+            <td class="description last"><p>輸入額外擴充執行函數物件，須為純物件，key為函數名而值為函數(值非函數時拋錯)，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，命名限制詳見上方說明，預設null</p></td>
         </tr>
 
     
@@ -940,12 +940,12 @@ setTimeout(() => {
             
                 <td class="default">
                 
-                    <code>'tableTags.json'</code>
+                    <code>'./tableTags.json'</code>
                 
                 </td>
             
 
-            <td class="description last"><p>輸入儲存各資料表時間戳檔案路徑串，預設'./tableTags.json'</p></td>
+            <td class="description last"><p>輸入儲存各資料表時間戳檔案路徑串，有給但非非空字串時拋錯，預設'./tableTags.json'</p></td>
         </tr>
 
     
@@ -985,7 +985,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入產生不重複識別碼函數，預設()=&gt;'{random string}'</p></td>
+            <td class="description last"><p>輸入產生不重複識別碼函數，須回傳非空字串(回傳其他值時拋錯)，有給但非函數時拋錯，預設()=&gt;'{random string}'</p></td>
         </tr>
 
     
@@ -1077,7 +1077,7 @@ setTimeout(() => {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 06:51:09 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 08:36:14 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
