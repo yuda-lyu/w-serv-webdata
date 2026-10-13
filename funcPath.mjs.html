@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="utf-8">
+    <title>funcPath.mjs - Documentation</title>
+    
+    
+    <script src="scripts/prettify/prettify.js"></script>
+    <script src="scripts/prettify/lang-css.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
+    <script src="scripts/nav.js" defer></script>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+<input type="checkbox" id="nav-trigger" class="nav-trigger" />
+<label for="nav-trigger" class="navicon-button x">
+  <div class="navicon"></div>
+</label>
+
+<label for="nav-trigger" class="overlay"></label>
+
+<nav >
+    
+    
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li></ul>
+    
+</nav>
+
+<div id="main">
+    
+    <h1 class="page-title">funcPath.mjs</h1>
+    
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import toPath from 'lodash-es/toPath.js'
+
+
+//前端以函數名之路徑將後端函數綁成物件(例如'tabA.select'綁為$fapi.tabA.select), 後端亦以同一解析檢查函數名, 故解析、綁定、取值與衝突檢查皆集中於此
+
+
+//namesGuard, 不可作為路徑段之名稱, 綁定時會觸及原型
+let namesGuard = ['__proto__', 'constructor', 'prototype']
+
+
+//hasOwn
+let hasOwn = (o, k) => {
+    return Object.prototype.hasOwnProperty.call(o, k)
+}
+
+
+/**
+ * 取函數名之路徑段陣列, 與lodash之toPath相同(例如'tabA[select]'亦為['tabA','select'])
+ *
+ * @param {String} name 輸入函數名字串
+ * @returns {Array} 回傳路徑段陣列
+ */
+function getFuncPath(name) {
+    return toPath(name)
+}
+
+
+/**
+ * 判斷函數名之路徑是否可綁定: 不得為空、不得有空段、各段不得為__proto__、constructor、prototype
+ *
+ * @param {String} name 輸入函數名字串
+ * @returns {Boolean} 回傳是否可綁定
+ */
+function isBindableFuncPath(name) {
+    let ps = getFuncPath(name)
+    if (ps.length === 0) {
+        return false
+    }
+    for (let p of ps) {
+        if (p === '' || namesGuard.includes(p)) {
+            return false
+        }
+    }
+    return true
+}
+
+
+/**
+ * 依函數名之路徑將fn綁到root, 只沿自有屬性前進, 不沿繼承物件寫入(例如不會把select寫到Object.prototype.toString上), 無法綁定之函數名略過
+ *
+ * @param {Object} root 輸入綁定之根物件
+ * @param {String} name 輸入函數名字串
+ * @param {*} fn 輸入要綁定之值
+ * @returns {Boolean} 回傳是否已綁定
+ */
+function bindFuncByPath(root, name, fn) {
+    if (!isBindableFuncPath(name)) {
+        return false
+    }
+    let ps = getFuncPath(name)
+    let node = root
+    for (let i = 0; i &lt; ps.length - 1; i++) {
+        let p = ps[i]
+        if (!hasOwn(node, p)) {
+            node[p] = {}
+        }
+        node = node[p]
+    }
+    node[ps[ps.length - 1]] = fn
+    return true
+}
+
+
+/**
+ * 依函數名之路徑自root取值, 只沿自有屬性前進, 不讀取繼承之屬性
+ *
+ * @param {Object} root 輸入綁定之根物件
+ * @param {String} name 輸入函數名字串
+ * @returns {*} 回傳取得之值, 取不到時回傳undefined
+ */
+function getFuncByPath(root, name) {
+    if (!isBindableFuncPath(name)) {
+        return undefined
+    }
+    let node = root
+    for (let p of getFuncPath(name)) {
+        if (node === null || (typeof node !== 'object' &amp;&amp; typeof node !== 'function') || !hasOwn(node, p)) {
+            return undefined
+        }
+        node = node[p]
+    }
+    return node
+}
+
+
+/**
+ * 檢查函數名清單綁定時之衝突: 不同函數名綁到同一路徑(例如'a.b'與'a["b"]'), 或其一為另一之前綴(例如'a'與'a.b', 後綁定者會覆蓋或被覆蓋); 完全同名者視為同一函數
+ *
+ * @param {Array} names 輸入函數名陣列, 各名須已可綁定
+ * @returns {Array|null} 回傳衝突之兩函數名[先出現者, 後出現者], 無衝突時回傳null
+ */
+function findFuncPathConflict(names) {
+    let mkNode = () => {
+        return { leaf: null, kids: new Map() }
+    }
+    let anyLeaf = (node) => {
+        if (node.leaf !== null) {
+            return node.leaf
+        }
+        for (let kid of node.kids.values()) {
+            let r = anyLeaf(kid)
+            if (r !== null) {
+                return r
+            }
+        }
+        return null
+    }
+    let root = mkNode()
+    for (let name of names) {
+        let node = root
+        for (let p of getFuncPath(name)) {
+            if (node.leaf !== null) {
+                return [node.leaf, name] //已存在之函數名為本名之前綴
+            }
+            if (!node.kids.has(p)) {
+                node.kids.set(p, mkNode())
+            }
+            node = node.kids.get(p)
+        }
+        if (node.leaf !== null) {
+            if (node.leaf !== name) {
+                return [node.leaf, name] //不同函數名綁到同一路徑
+            }
+            continue //完全同名, 同一函數
+        }
+        if (node.kids.size > 0) {
+            return [anyLeaf(node), name] //本名為已存在之函數名之前綴
+        }
+        node.leaf = name
+    }
+    return null
+}
+
+
+export {
+    getFuncPath,
+    isBindableFuncPath,
+    bindFuncByPath,
+    getFuncByPath,
+    findFuncPathConflict
+}
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+    
+    
+</div>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 13 2026 08:36:14 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+</footer>
+
+<script>prettyPrint();</script>
+<script src="scripts/polyfill.js"></script>
+<script src="scripts/linenumber.js"></script>
+
+
+
+</body>
+</html>
