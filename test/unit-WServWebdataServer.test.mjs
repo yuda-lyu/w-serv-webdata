@@ -54,6 +54,12 @@ describe('unit-WServWebdataServer', function() {
         return process.getActiveResourcesInfo().filter((v) => v === 'Timeout').length
     }
 
+    let sleep = (ms) => {
+        return new Promise((resolve) => {
+            setTimeout(resolve, ms)
+        })
+    }
+
     //snapshot, 建構前後須相同之狀態: 傳入之事件物件(自有鍵、方法參照、execute監聽數)、計時器數、使用端ORM之監聽數、時間戳檔內容
     let snapshot = (inst, kpOrm) => {
         let orm = {}
@@ -245,6 +251,88 @@ describe('unit-WServWebdataServer', function() {
             }, { message: 'invalid opt.genTag' })
             assert.strict.equal(tabA.listenerCount('change'), 1)
             assert.strict.equal(fs.readFileSync(fpTableTags, 'utf8'), 'PRE')
+            assert.strict.equal(countTimeout(), n0)
+        })
+
+    })
+
+    describe('釋放', function() {
+
+        //R46: w-sync-webdata之clearSync不處理上層掛於外部物件之監聽, 須由本套件移除(原無釋放途徑, 以同一kpOrm重建會累加監聽)
+        it('clearSync時移除掛於kpOrm之change監聽且可重複呼叫, 之後之變更不再更新時間戳', async function() {
+            let tabA = mkOrm()
+            let tabB = mkOrm()
+            let inst = evem()
+            insts.push(inst)
+            new WServWebdataServer(inst, base({ fpTableTags: `${fdTmp}/release.json`, kpOrm: { tabA, tabB }, tableNamesSync: ['tabA', 'tabB'] }))
+            assert.strict.equal(tabA.listenerCount('change'), 2)
+            assert.strict.equal(tabB.listenerCount('change'), 2)
+            let tags0 = JSON.stringify(inst.getTableTags())
+            inst.clearSync()
+            inst.clearSync()
+            assert.strict.equal(tabA.listenerCount('change'), 1, '只移除本套件所掛者, 使用端既有之監聽保留')
+            assert.strict.equal(tabB.listenerCount('change'), 1)
+            tabA.emit('change')
+            await sleep(300)
+            assert.strict.equal(JSON.stringify(inst.getTableTags()), tags0)
+        })
+
+        //R46: 包裝後仍執行w-sync-webdata之釋放: 尚未落檔之時間戳寫入檔案, 待推播者取消(行為鎖定)
+        it('clearSync時將尚未落檔之時間戳寫入檔案且不再推播', async function() {
+            let fp = `${fdTmp}/release-flush.json`
+            let tabA = mkOrm()
+            let inst = evem()
+            insts.push(inst)
+            let n = 0
+            new WServWebdataServer(inst, base({ fpTableTags: fp, kpOrm: { tabA }, tableNamesSync: ['tabA'], genTag: () => `tag${++n}` }))
+            let nChange = 0
+            inst.on('changeTableTags', () => {
+                nChange++
+            })
+            assert.strict.deepEqual(JSON.parse(fs.readFileSync(fp, 'utf8')), { tabA: 'tag1' })
+            tabA.emit('change')
+            inst.clearSync()
+            assert.strict.deepEqual(JSON.parse(fs.readFileSync(fp, 'utf8')), { tabA: 'tag2' })
+            await sleep(300)
+            assert.strict.equal(nChange, 0)
+        })
+
+        //R46: 建構之執行期異常時, 除停止廣播之計時器外亦須釋放同步元件, 殘留之實體不再更新時間戳或寫檔
+        it('建構之執行期異常時釋放同步元件', async function() {
+            let fp = `${fdTmp}/release-fail.json`
+            fs.writeFileSync(fp, 'PRE', 'utf8')
+            let tabA = mkOrm()
+            let inst = evem()
+            insts.push(inst)
+            assert.throws(() => {
+                new WServWebdataServer(inst, base({ fpTableTags: fp, kpOrm: { tabA }, tableNamesSync: ['tabA'], genTag: () => Date.now() }))
+            }, { message: 'invalid opt.genTag' })
+            inst.updateTableTag('tabA')
+            await sleep(300)
+            assert.strict.deepEqual(inst.getTableTags(), {})
+            assert.strict.equal(fs.readFileSync(fp, 'utf8'), 'PRE')
+        })
+
+        //R46: 掛kpOrm監聽之後的步驟失敗亦須回滾(以事件物件之on於註冊changeTableTags時拋錯模擬), 且不寫時間戳檔
+        it('註冊changeTableTags失敗時回滾使用端ORM上之監聽且不寫時間戳檔', function() {
+            let fp = `${fdTmp}/release-on.json`
+            fs.writeFileSync(fp, 'PRE', 'utf8')
+            let tabA = mkOrm()
+            let inst = evem()
+            insts.push(inst)
+            let on0 = inst.on
+            inst.on = function(name, ...args) {
+                if (name === 'changeTableTags') {
+                    throw new Error('onChangeBoom')
+                }
+                return on0.call(this, name, ...args)
+            }
+            let n0 = countTimeout()
+            assert.throws(() => {
+                new WServWebdataServer(inst, base({ fpTableTags: fp, kpOrm: { tabA }, tableNamesSync: ['tabA'] }))
+            }, { message: 'onChangeBoom' })
+            assert.strict.equal(tabA.listenerCount('change'), 1)
+            assert.strict.equal(fs.readFileSync(fp, 'utf8'), 'PRE')
             assert.strict.equal(countTimeout(), n0)
         })
 

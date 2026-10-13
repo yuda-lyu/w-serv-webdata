@@ -114,6 +114,7 @@ instWConverClient.on('error', (err) => {
 //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
 setTimeout(() => {
     instWConverClient.clearBroadcast()
+    instWConverClient.clearSync()
     console.log('ms', ms)
 }, 14000)
 // => ms [

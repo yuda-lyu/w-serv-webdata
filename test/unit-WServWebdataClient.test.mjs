@@ -53,8 +53,8 @@ describe('unit-WServWebdataClient', function() {
         return cl
     }
 
-    //linkFake, 假後端: 直接回應函數清單、時間戳與select, 用以製造伺服端已不允許之設定(例如同步表無select)
-    let linkFake = ({ funcs, tags, called }) => {
+    //linkFake, 假後端: 直接回應函數清單、時間戳與select, 用以製造伺服端已不允許之設定(例如同步表無select); fail有給時, 其回傳非null者作為該次呼叫之拒絕值(例如授權拒絕)
+    let linkFake = ({ funcs, tags, called, fail = null }) => {
         let cl = evem()
         cl.execute = async (func) => {
             await sleep(5)
@@ -68,14 +68,18 @@ describe('unit-WServWebdataClient', function() {
                 return { state: 'success', msg: { mode: 'syncKpTable', data: tags } }
             }
             called.push(func)
+            let reason = fail ? fail(func) : null
+            if (reason !== null) {
+                return { state: 'error', msg: reason }
+            }
             return { state: 'success', msg: [{ id: `row-of-${func}` }] }
         }
         return cl
     }
 
-    //run, 建構前端並收集事件
+    //run, 建構前端並收集事件(rawErrors為error事件之原值)
     let run = (cl, opt = {}) => {
-        let log = { recv: [], errors: [], after: 0, fapi: null }
+        let log = { recv: [], errors: [], rawErrors: [], after: 0, fapi: null, cl: null }
         cl = new WServWebdataClient(cl, {
             getToken: () => 'tok',
             getServerMethods: (r) => {
@@ -90,11 +94,14 @@ describe('unit-WServWebdataClient', function() {
             ...opt,
         })
         cl.on('error', (err) => {
+            log.rawErrors.push(err)
             log.errors.push(typeof err === 'string' ? err : String(err && err.message ? err.message : (err && err.msg) || err))
         })
         cleans.push(() => {
             cl.clearBroadcast()
+            cl.clearSync()
         })
+        log.cl = cl
         return log
     }
 
@@ -168,20 +175,49 @@ describe('unit-WServWebdataClient', function() {
             assert.strict.deepEqual(log.errors, [])
         })
 
-        //R43: 已綁定而同步表缺select時, 以空資料結束pm(該次updateTableTags照常完成)並發出error
-        it('已綁定而同步表缺select或缺表時, pm以空資料結束並發出error', async function() {
+        //R43: 已綁定而同步表缺select或缺表時, 以reject結束pm: 不提交空資料、不推進時間戳(再收到同一時間戳時重試), 由w-sync-webdata發出一則帶表名與時間戳之error, 該次updateTableTags照常完成(原以空資料結束而清空該表並記下時間戳)
+        it('已綁定而同步表缺select或缺表時, pm以reject結束且不推進時間戳', async function() {
             this.timeout(20000)
             let called = []
             let log1 = run(linkFake({ funcs: ['tabA.insert'], tags: { tabA: 't1' }, called }))
             let log2 = run(linkFake({ funcs: ['tabB.select'], tags: { tabX: 't1' }, called }))
             await sleep(3000)
-            assert.strict.deepEqual(log1.recv, [{ tableName: 'tabA', data: [] }])
-            assert.strict.deepEqual(log1.errors, ['kpExec[tabA].select is not a function'])
+            assert.strict.deepEqual(log1.recv, [])
+            assert.strict.deepEqual(log1.rawErrors, [{ msg: 'can not get table data: tabA', err: 'kpExec[tabA].select is not a function', tableName: 'tabA', timeTag: 't1' }])
             assert.strict.equal(log1.after, 1)
-            assert.strict.deepEqual(log2.recv, [{ tableName: 'tabX', data: [] }])
-            assert.strict.deepEqual(log2.errors, ['invalid kpExec[tabX]'])
+            assert.strict.deepEqual(log2.recv, [])
+            assert.strict.deepEqual(log2.rawErrors, [{ msg: 'can not get table data: tabX', err: 'invalid kpExec[tabX]', tableName: 'tabX', timeTag: 't1' }])
             assert.strict.equal(log2.after, 1)
+            await log1.cl.updateTableTags({ tabA: 't1' })
+            await sleep(50)
+            assert.strict.equal(log1.rawErrors.length, 2, '時間戳未推進, 再收到同一時間戳時重試')
+            assert.strict.equal(log1.after, 2)
             assert.strict.deepEqual(called, [])
+        })
+
+        //R47: select失敗(例如授權拒絕)時不提交空資料、不推進時間戳並發出error, 再收到同一時間戳時重抓(原以空資料結束而清空該表, 到該表下次變動前不重抓, 且只console.log)
+        it('select失敗時不清空資料且不推進時間戳, 再收到同一時間戳時重抓', async function() {
+            this.timeout(20000)
+            let called = []
+            let nFail = 1
+            let fail = () => {
+                if (nFail > 0) {
+                    nFail--
+                    return 'permission denied'
+                }
+                return null
+            }
+            let log = run(linkFake({ funcs: ['tabA.select'], tags: { tabA: 't1' }, called, fail }))
+            await sleep(3000)
+            assert.strict.deepEqual(log.recv, [])
+            assert.strict.deepEqual(log.rawErrors, [{ msg: 'can not get table data: tabA', err: 'permission denied', tableName: 'tabA', timeTag: 't1' }])
+            assert.strict.equal(log.after, 1)
+            await log.cl.updateTableTags({ tabA: 't1' })
+            await sleep(50)
+            assert.strict.deepEqual(log.recv, [{ tableName: 'tabA', data: [{ id: 'row-of-tabA.select' }] }])
+            assert.strict.equal(log.rawErrors.length, 1)
+            assert.strict.equal(log.after, 2)
+            assert.strict.deepEqual(called, ['tabA.select', 'tabA.select'])
         })
 
         //R44: 使用端回調函數拋錯時改發出error, 同步照常完成

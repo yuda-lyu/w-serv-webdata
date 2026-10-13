@@ -194,6 +194,7 @@ instWConverServer.on('error', (err) => {
 //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
 setTimeout(() => {
     instWConverServer.clearBroadcast()
+    instWConverServer.clearSync()
     instWConverServer.stop()
     console.log('ms', ms)
 }, 14000)
@@ -427,6 +428,7 @@ instWConverClient.on('error', (err) => {
 //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
 setTimeout(() => {
     instWConverClient.clearBroadcast()
+    instWConverClient.clearSync()
     console.log('ms', ms)
 }, 14000)
 // => ms [
@@ -447,14 +449,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.9/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.10/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.9/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.10/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 
@@ -560,6 +562,7 @@ instWConverClient.on('error', function(err) {
 //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
 setTimeout(() => {
     instWConverClient.clearBroadcast()
+    instWConverClient.clearSync()
     console.log('ms', ms)
 }, 14000)
 // => ms [

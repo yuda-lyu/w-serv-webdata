@@ -45,6 +45,22 @@ function checkOpt(tableNames, kpOrm) {
 }
 
 
+//removeListeners, 盡力移除已掛於kpOrm之change監聽, 移除失敗者略過(回滾時以原錯誤為準; 釋放時殘留之監聽因同步已釋放而不作用)
+let removeListeners = (hs) => {
+    each(hs, ({ ev, h }) => {
+        try {
+            if (isfun(ev.removeListener)) {
+                ev.removeListener('change', h)
+            }
+            else if (isfun(ev.off)) {
+                ev.off('change', h)
+            }
+        }
+        catch (err) {}
+    })
+}
+
+
 function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) {
 
     //check instWConverServer
@@ -79,7 +95,7 @@ function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) 
         }
     })
 
-    //對各tableName監聽change事件進行接入updateTableTag, 任一失敗即移除已掛者再拋錯, 不在使用端之ORM實體上留下監聽
+    //對各tableName監聽change事件進行接入updateTableTag, 並註冊changeTableTags之推播, 任一失敗即移除已掛者再拋錯, 不在使用端之ORM實體上留下監聽
     let hs = []
     try {
         each(tableNames, (tableName) => {
@@ -95,36 +111,35 @@ function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) 
             }
             hs.push({ ev, h })
         })
+
+        //changeTableTags
+        instWConverServer.on('changeTableTags', (nowTableTags) => {
+            //console.log('changeTableTags', nowTableTags)
+
+            //broadcast, 資料有更新時對全部人推播時間戳
+            instWConverServer.broadcast({
+                mode: 'syncKpTable',
+                data: pickTables(tableNames, nowTableTags),
+            })
+
+        })
+
     }
     catch (err) {
-        each(hs, ({ ev, h }) => {
-            try {
-                if (isfun(ev.removeListener)) {
-                    ev.removeListener('change', h)
-                }
-                else if (isfun(ev.off)) {
-                    ev.off('change', h)
-                }
-            }
-            catch (errRemove) {} //盡力移除, 以原錯誤為準
-        })
+        removeListeners(hs)
         throw err
+    }
+
+    //clearSync, 釋放時一併移除掛於kpOrm之change監聽(w-sync-webdata之clearSync不處理上層掛於外部物件之監聽), 於寫入時間戳檔之前包裝, 使其後之異常亦可經clearSync釋放
+    let clearSyncCore = instWConverServer.clearSync
+    instWConverServer.clearSync = () => {
+        removeListeners(hs)
+        hs = []
+        clearSyncCore()
     }
 
     //initTableTags, 全部監聽成功後才寫入時間戳檔
     instWConverServer.initTableTags(tableTagsSrv, 'useInputOnly')
-
-    //changeTableTags
-    instWConverServer.on('changeTableTags', (nowTableTags) => {
-        //console.log('changeTableTags', nowTableTags)
-
-        //broadcast, 資料有更新時對全部人推播時間戳
-        instWConverServer.broadcast({
-            mode: 'syncKpTable',
-            data: pickTables(tableNames, nowTableTags),
-        })
-
-    })
 
     return instWConverServer
 }

@@ -81,9 +81,11 @@ describe('api-authorizeExec', function() {
     after(function() {
         if (cl) {
             cl.clearBroadcast()
+            cl.clearSync()
         }
         if (srv) {
             srv.clearBroadcast()
+            srv.clearSync()
             srv.stop()
         }
         fs.rmSync(fdTmp, { recursive: true, force: true })

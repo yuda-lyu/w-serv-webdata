@@ -163,11 +163,12 @@ function parseOpt(opt = {}) {
  * 1. 資料通道是資料表直接開放給前端之處，表操作之授權在此，由authorizeExec負責。採預設拒絕，回傳值須嚴格等於true才放行，回傳其他值(例如false、1、'true'、undefined)一律回應'permission denied'且不呼叫operOrm。operOrm可能亦被伺服端程式呼叫而分不出呼叫來源，故不負責授權。kpFunExt之函數不經authorizeExec，須各自把關。
  * 2. 各關卡(getUserIdByToken、authorizeExec、operOrm、kpFunExt之函數)拋錯或reject時，其值原樣成為前端收到之拒絕值，故欲回傳語系鍵須reject字串，Error物件經序列化後前端收到'Error: 訊息'字串。各關卡之回傳值與拒絕值須為可序列化之格式，此為設計要求，不支援之格式(例如循環參照、BigInt)本就不在設計範圍內，前端必然失敗。
  * 3. 僅getUserIdByToken之拒絕會發出error事件(其值可能為undefined或null)；authorizeExec、operOrm與kpFunExt之拒絕不發出error事件，需於伺服端紀錄者請於函數內自行處理。
- * 4. authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫該表之表操作select且不帶參數，故tableNamesSync內之表須在tableNamesExec中、methodsExec須含'select'(kpFunExt提供之同名函數不算)，否則建構時拋錯；其select須對所有連線者放行，否則前端該表會被清空。需逐筆控管可見範圍者請改用kpFunExt提供且不列入同步。
+ * 4. authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫該表之表操作select且不帶參數，故tableNamesSync內之表須在tableNamesExec中、methodsExec須含'select'(kpFunExt提供之同名函數不算)，否則建構時拋錯；其select須對所有連線者放行，否則被拒絕之前端取不到該表資料，且每次重抓皆發出error事件。需逐筆控管可見範圍者請改用kpFunExt提供且不列入同步。
  * 5. authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。
  * 6. getUserIdByToken須完整驗證token(不可只解碼)，其token取自請求內容，與通訊層(例如w-converhp之verifyConn)所驗證者為不同來源。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。
  * 7. 函數名須能被前端綁定(前端依函數名之路徑綁定，解析同lodash之toPath，例如'tabA[select]'即['tabA','select'])：路徑不得為空、不得有空段、各段不得為'__proto__'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)；不同函數名(含表操作與kpFunExt)不得解析為同一路徑(例如'a.b'與'a["b"]')，亦不得互為前綴(例如'a'與'a.b')。違反者於建構時拋錯。
- * 8. 設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播之計時器、移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充，不可再以同一事件物件重新建構。
+ * 8. 設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播之計時器、釋放同步元件並移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充，不可再以同一事件物件重新建構。
+ * 9. 停止服務時呼叫clearBroadcast(停止廣播)與clearSync(釋放資料同步)。clearSync會移除本套件掛於kpOrm之change監聽、取消待推播之時間戳並將尚未落檔之時間戳寫入檔案，之後kpOrm之變更不再更新時間戳與推播，可重複呼叫。釋放後傳入之事件物件上仍有廣播與資料通道之監聽，不可再以同一事件物件重新建構。
  *
  * @class
  * @param {Object} instWConverServer 輸入通訊服務實體物件，可使用例如WConverhpServer等建立
@@ -183,7 +184,7 @@ function parseOpt(opt = {}) {
  * @param {Object} [opt.kpFunExt=null] 輸入額外擴充執行函數物件，須為純物件，key為函數名而值為函數(值非函數時拋錯)，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，命名限制詳見上方說明，預設null
  * @param {String} [opt.fpTableTags='./tableTags.json'] 輸入儲存各資料表時間戳檔案路徑串，有給但非非空字串時拋錯，預設'./tableTags.json'
  * @param {Function} [opt.genTag=()=>'{random string}'] 輸入產生不重複識別碼函數，須回傳非空字串(回傳其他值時拋錯)，有給但非函數時拋錯，預設()=>'{random string}'
- * @returns {Object} 回傳事件物件，可監聽error事件
+ * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast、clearSync停止服務(見上方第9點)
  * @example
  *
  * // import fs from 'fs'
@@ -354,6 +355,7 @@ function parseOpt(opt = {}) {
  * //sync會通過broadcast給前端還需要時間處理, 故不能於滿足條件就stop
  * setTimeout(() => {
  *     instWConverServer.clearBroadcast()
+ *     instWConverServer.clearSync()
  *     instWConverServer.stop()
  *     console.log('ms', ms)
  * }, 14000)
@@ -505,7 +507,7 @@ function WServWebdataServer(instWConverServer, opt = {}) {
         },
     }
 
-    //設定錯誤已於parseOpt拋出, 此處只剩執行期異常(例如使用端genTag拋錯、kpOrm之on拋錯), 拋錯前先停止廣播之計時器, 否則呼叫端攔下錯誤後程序仍被計時器撐住而無法結束
+    //設定錯誤已於parseOpt拋出, 此處只剩執行期異常(例如使用端genTag拋錯、kpOrm之on拋錯), 拋錯前先釋放已建構之元件: 停止廣播之計時器(否則呼叫端攔下錯誤後程序仍被計時器撐住而無法結束), 釋放同步元件(殘留之實體不再更新時間戳或寫檔; 已掛於kpOrm之監聽由Sync回滾或經其包裝之clearSync移除)
     try {
 
         //WServWebdataServerExec, 以parseOpt之結果建構, 不再重讀原始opt
@@ -535,6 +537,7 @@ function WServWebdataServer(instWConverServer, opt = {}) {
     }
     catch (err) {
         instWConverServer.clearBroadcast()
+        instWConverServer.clearSync()
         throw err
     }
 
