@@ -167,11 +167,11 @@ function parseOpt(opt = {}) {
  * 5. authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。
  * 6. getUserIdByToken須完整驗證token(不可只解碼)，其token取自請求內容，與通訊層(例如w-converhp之verifyConn)所驗證者為不同來源。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。
  * 7. 函數名須能被前端綁定(前端依函數名之路徑綁定，解析同lodash之toPath，例如'tabA[select]'即['tabA','select'])：路徑不得為空、不得有空段、各段不得為'__proto__'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)；不同函數名(含表操作與kpFunExt)不得解析為同一路徑(例如'a.b'與'a["b"]')，亦不得互為前綴(例如'a'與'a.b')。違反者於建構時拋錯。
- * 8. 設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播之計時器、釋放同步元件並移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充，不可再以同一事件物件重新建構。
- * 9. 停止服務時呼叫clearBroadcast(停止廣播)與clearSync(釋放資料同步)。clearSync會移除本套件掛於kpOrm之change監聽、取消待推播之時間戳並將尚未落檔之時間戳寫入檔案，之後kpOrm之變更不再更新時間戳與推播，可重複呼叫。釋放後傳入之事件物件上仍有廣播與資料通道之監聽，不可再以同一事件物件重新建構。
+ * 8. 設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：instWConverServer非事件物件(無emit、on或off函數)；未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播(clearBroadcast)、釋放同步元件(clearSync)並移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充且仍有資料通道之execute監聽，不可再以同一事件物件重新建構。
+ * 9. 停止服務時依序呼叫clearBroadcast(停止廣播：清除廣播之計時器與在線偵測並移除輪詢之監聽，對已進入之客戶端補發clientLeave與clientChange使進出成對後，不再派發廣播之事件)、clearSync(釋放資料同步)，再停止通訊服務(例如WConverhpServer之stop)。只呼叫clearBroadcast而未停止通訊服務時，前端之輪詢改由資料通道回應{state:'error',msg:'invalid token'}，前端每輪發出輪詢失敗之error事件({msg:'[sys:polling] error',err:{state:'error',msg:'invalid token'}})且收不到推播。clearSync會移除本套件掛於kpOrm之change監聽與掛於傳入事件物件之changeTableTags監聽、取消待推播之時間戳並將尚未落檔之時間戳寫入檔案，之後kpOrm之變更不再更新時間戳與推播，可重複呼叫。釋放後傳入之事件物件上仍有資料通道之execute監聽，不可再以同一事件物件重新建構。
  *
  * @class
- * @param {Object} instWConverServer 輸入通訊服務實體物件，可使用例如WConverhpServer等建立
+ * @param {Object} instWConverServer 輸入通訊服務實體物件，須為具emit、on、off函數之eventemitter3事件物件(例如WConverhpServer或wsemi之evem所建立者)，有給物件而缺emit、on或off函數時拋錯；未給或非有效物件時改用wsemi之evem建立之事件物件(不連線)
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Boolean} [opt.useDbOrm=false] 輸入是否使用資料庫ORM技術，給予true代表開啟資料通道(前端可直接呼叫由tableNamesExec與methodsExec組成之表操作，例如'tabA.select')與自動同步資料庫至前端功能，此時operOrm、tableNamesExec、authorizeExec為必填，未給或無效時拋錯。未指定(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync時拋錯，預設false
  * @param {Object} [opt.kpOrm=null] 輸入各資料表的操作物件，用以提供由tableNamesSync指定資料表的change事件，使能監聽與觸發資料變更事件，key為表名而值為該表的操作器實體，操作器實體可使用例如WOrmMongodb等建立。useDbOrm為true時必填且須為物件，否則拋錯；為空物件時不同步，預設null
@@ -479,7 +479,8 @@ function WServWebdataServer(instWConverServer, opt = {}) {
         console.log('instWConverServer is not an effective object, and set instWConverServer to an EventEmitter')
         instWConverServer = evem()
     }
-    if (!haskey(instWConverServer, 'emit') || !isfun(instWConverServer.on)) {
+    //check, 須具emit、on、off(off供w-serv-broadcast之clearBroadcast移除監聽, 停止與建構失敗之catch皆會呼叫); w-serv-broadcast伺服端亦於建構時檢查同三者, 但本套件先建構之WSyncWebdataServer已擴充傳入之物件, 故前移至此
+    if (!haskey(instWConverServer, 'emit') || !isfun(instWConverServer.on) || !isfun(instWConverServer.off)) {
         throw new Error(`instWConverServer is not an EventEmitter`)
     }
 

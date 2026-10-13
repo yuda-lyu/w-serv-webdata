@@ -7,6 +7,7 @@ import isfun from 'wsemi/src/isfun.mjs'
 import now2str from 'wsemi/src/now2str.mjs'
 import genID from 'wsemi/src/genID.mjs'
 import pickTables from './pickTables.mjs'
+import removeListeners from './removeListeners.mjs'
 
 
 /**
@@ -42,22 +43,6 @@ function checkOpt(tableNames, kpOrm) {
     })
 
     return true
-}
-
-
-//removeListeners, 盡力移除已掛於kpOrm之change監聽, 移除失敗者略過(回滾時以原錯誤為準; 釋放時殘留之監聽因同步已釋放而不作用)
-let removeListeners = (hs) => {
-    each(hs, ({ ev, h }) => {
-        try {
-            if (isfun(ev.removeListener)) {
-                ev.removeListener('change', h)
-            }
-            else if (isfun(ev.off)) {
-                ev.off('change', h)
-            }
-        }
-        catch (err) {}
-    })
 }
 
 
@@ -109,11 +94,11 @@ function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) 
             catch (err) {
                 throw new Error(`kpOrm[${tableName}] can not listen to change events`)
             }
-            hs.push({ ev, h })
+            hs.push({ ev, name: 'change', h })
         })
 
-        //changeTableTags
-        instWConverServer.on('changeTableTags', (nowTableTags) => {
+        //changeTableTags, 掛於通訊物件, 亦記入hs由clearSync移除(掛的人負責移除)
+        let hChange = (nowTableTags) => {
             //console.log('changeTableTags', nowTableTags)
 
             //broadcast, 資料有更新時對全部人推播時間戳
@@ -122,7 +107,9 @@ function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) 
                 data: pickTables(tableNames, nowTableTags),
             })
 
-        })
+        }
+        instWConverServer.on('changeTableTags', hChange)
+        hs.push({ ev: instWConverServer, name: 'changeTableTags', h: hChange })
 
     }
     catch (err) {
@@ -130,7 +117,7 @@ function WServWebdataServerSync(instWConverServer, tableNames, kpOrm, opt = {}) 
         throw err
     }
 
-    //clearSync, 釋放時一併移除掛於kpOrm之change監聽(w-sync-webdata之clearSync不處理上層掛於外部物件之監聽), 於寫入時間戳檔之前包裝, 使其後之異常亦可經clearSync釋放
+    //clearSync, 釋放時一併移除掛於kpOrm之change監聽與掛於通訊物件之changeTableTags監聽(w-sync-webdata之clearSync不處理上層掛於外部物件之監聽), 於寫入時間戳檔之前包裝, 使其後之異常亦可經clearSync釋放
     let clearSyncCore = instWConverServer.clearSync
     instWConverServer.clearSync = () => {
         removeListeners(hs)

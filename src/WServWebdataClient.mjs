@@ -3,7 +3,6 @@ import each from 'lodash-es/each.js'
 import last from 'lodash-es/last.js'
 import dropRight from 'lodash-es/dropRight.js'
 import genPm from 'wsemi/src/genPm.mjs'
-import evem from 'wsemi/src/evem.mjs'
 import evEmit from 'wsemi/src/evEmit.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
 import iseobj from 'wsemi/src/iseobj.mjs'
@@ -13,6 +12,7 @@ import ispm from 'wsemi/src/ispm.mjs'
 import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
 import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
 import { bindFuncByPath, getFuncByPath } from './funcPath.mjs'
+import removeListeners from './removeListeners.mjs'
 
 
 //isGiven, 有給(不為undefined與null), 有給卻無效之設定須拋錯, 不可靜默改用預設或忽略
@@ -24,10 +24,14 @@ let isGiven = (v) => {
 /**
  * 瀏覽器端之資料控制與同步器
  *
- * 設定錯誤(getServerMethods、recvData非函數，或getToken與各回調函數有給但非函數)於建構任何元件之前拋錯。連線後先取得可呼叫函數清單並綁定，綁定完成前收到之同步廣播一律略過，綁定後即以當下全部資料表時間戳同步，不會遺漏。某表取資料失敗(例如表操作select被拒絕、傳輸失敗，或前端缺該表之表操作)時不呼叫recvData、不推進該表時間戳，前端既有資料維持不變，並發出error事件(內容為{msg,err,tableName,timeTag}，err為原拒絕值)，之後再收到同一時間戳(例如任一同步表變更之推播)時重抓。各回調函數拋錯時改發出error事件，不中斷同步。停止時呼叫clearBroadcast與clearSync。
+ * 設定錯誤(instWConverClient未給、非事件物件(無emit、on，或無removeListener與off)或無execute函數，getServerMethods、recvData非函數，或getToken與各回調函數有給但非函數)於建構任何元件之前拋錯。連線後先取得可呼叫函數清單並綁定，綁定完成前收到之同步廣播一律略過，綁定後即以當下全部資料表時間戳同步，不會遺漏。某表取資料失敗(例如表操作select被拒絕、傳輸失敗，或前端缺該表之表操作)時不呼叫recvData、不推進該表時間戳，前端既有資料維持不變，並發出error事件(內容為{msg,err,tableName,timeTag}，err為原拒絕值)，之後再收到同一時間戳(例如任一同步表變更之推播)時重抓。各回調函數拋錯時改發出error事件，不中斷同步。
+ *
+ * 回傳之事件物件即傳入之通訊物件，其上之error事件另含w-serv-broadcast之輪詢失敗({msg:'[sys:polling] error',err}，例如伺服端已停止廣播或通訊服務)與通訊物件自身之錯誤(例如WConverhpClient每次嘗試失敗之訊息)。
+ *
+ * 停止時呼叫clearBroadcast與clearSync(兩者皆須呼叫，皆可重複呼叫)。任一者被呼叫後，本套件即移除其掛於通訊物件之監聽，不再呼叫getServerMethods、recvData與getRefreshState等回調函數，不再發出本套件之error事件，亦不再送出本套件之請求(取得函數清單、時間戳與同步表資料，含停止時尚在等待getToken者)，停止前已送出者於其後才回到之結果一律忽略；停止前已被呼叫之回調函數於停止後才拋錯者改以console.error輸出。w-serv-broadcast之事件(openOnce、broadcast與輪詢之error等)於clearBroadcast後、w-sync-webdata之事件於clearSync後才停止，故只呼叫其一時，另一下層依其自身之規則繼續(例如只呼叫clearBroadcast時，w-sync-webdata於停止後才派發之取資料因無監聽者而由其結束並發出error，停止前已送出之select於停止後失敗時亦由其發出error)。兩者皆呼叫後可於同一通訊物件重建；只呼叫其一即重建時，未停止之下層仍屬舊實體而與新實體並存。停止前已交給通訊物件之請求無法中止，通訊物件於其重試期間仍會發出各次嘗試失敗之error。使用端自行呼叫之函數(getServerMethods所提供者，其仍會呼叫getToken)不受停止影響。
  *
  * @class
- * @param {Object} instWConverClient 輸入通訊服務實體物件，可使用例如WConverhpClient等建立
+ * @param {Object} instWConverClient 輸入通訊服務實體物件，須為具emit、on、execute與removeListener或off函數之eventemitter3事件物件(例如WConverhpClient所建立者)，未給、非事件物件(無emit、on，或無removeListener與off)或無execute函數時拋錯
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=>''
  * @param {Function} opt.getServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將依函數名之路徑放入物件當中(例如'tabA.select'放入為obj.tabA.select)，並通過回調函數提供該物件，必填，非函數時拋錯
@@ -36,7 +40,7 @@ let isGiven = (v) => {
  * @param {Function} [opt.getRefreshTable=null] 輸入取得資料表即將更新之回調函數，有給但非函數時拋錯，預設null
  * @param {Function} [opt.getBeforeUpdateTableTags=null] 輸入取得更新資料表時間戳前之回調函數，有給但非函數時拋錯，預設null
  * @param {Function} [opt.getAfterUpdateTableTags=null] 輸入取得更新資料表時間戳後之回調函數，有給但非函數時拋錯，預設null
- * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast(停止輪詢)、clearSync(釋放資料同步)停止
+ * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast(停止輪詢)、clearSync(釋放資料同步)停止(見上方說明)
  * @example
  *
  * import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs' //編譯後axios不適合執行於nodejs, 故需引用原程式碼執行
@@ -173,14 +177,18 @@ let isGiven = (v) => {
 function WServWebdataClient(instWConverClient, opt = {}) {
     let kpExec = {}
     let isBound = false //可呼叫函數是否已綁定, 綁定完成前略過同步廣播
+    let isStopped = false //是否已停止(clearBroadcast或clearSync任一被呼叫), 停止後本套件不再呼叫回調函數、不再發出error事件、不再送出本套件之請求, 進行中者之結果一律忽略
 
-    //check
+    //check, 須為可輪詢之通訊物件(具emit、on與execute之事件物件), 於建構任何元件之前檢查: w-serv-broadcast前端亦於建構時檢查同三者, 但本套件先建構之WSyncWebdataClient已擴充傳入之物件, 故前移至此
+    //另須具removeListener或off: 停止時以之移除本套件之監聽(見clearBroadcast, clearSync之包裝), 缺者移除靜默失敗, 重建後舊實體之監聽仍會先處理新實體之事件
     if (!iseobj(instWConverClient)) {
-        console.log('instWConverClient is not an effective object, and set instWConverClient to an EventEmitter')
-        instWConverClient = evem()
+        throw new Error(`instWConverClient is not an effective object`)
     }
-    if (!haskey(instWConverClient, 'emit')) {
+    if (!haskey(instWConverClient, 'emit') || !isfun(instWConverClient.on) || (!isfun(instWConverClient.removeListener) && !isfun(instWConverClient.off))) {
         throw new Error(`instWConverClient is not an EventEmitter`)
+    }
+    if (!isfun(instWConverClient.execute)) {
+        throw new Error(`instWConverClient.execute is not a function`)
     }
 
     //getToken, 有給須為函數
@@ -217,20 +225,28 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     })
     let { getRefreshState, getRefreshTable, getBeforeUpdateTableTags, getAfterUpdateTableTags } = kpHook
 
-    //emitError, 本套件之error事件經evEmit發出, 隔離監聽者之拋錯
+    //emitError, 本套件之error事件經evEmit發出, 隔離監聽者之拋錯; 停止後不再發出(例如停止前已送出之請求於停止後才失敗)
     let emitError = (err) => {
+        if (isStopped) {
+            return
+        }
         evEmit(instWConverClient, 'error', [err])
     }
 
-    //callHook, 呼叫使用端之回調函數, 拋錯時改發出error事件, 不中斷本套件之流程(例如refreshTable之pm須照常結束)
+    //callHook, 呼叫使用端之回調函數, 拋錯時改發出error事件, 不中斷本套件之流程(例如refreshTable之pm須照常結束); 停止後不再呼叫
+    //回調於自身內停止後才拋錯者, 停止後不再發出error事件, 改以console.error輸出: 使用端程式之錯誤不可無聲(同w-serv-broadcast停止後之監聽器拋錯)
     let callHook = (fn, ...args) => {
-        if (!isfun(fn)) {
+        if (isStopped || !isfun(fn)) {
             return
         }
         try {
             fn(...args)
         }
         catch (err) {
+            if (isStopped) {
+                console.error('[w-serv-webdata] callback error after stop', err)
+                return
+            }
             emitError(err)
         }
     }
@@ -241,9 +257,34 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     //擴充廣播功能
     instWConverClient = new WServBroadcastClient(instWConverClient)
 
+    //on, 註冊本套件於通訊物件之監聽並記錄, 停止時移除(掛的人負責移除): 下層皆允許停止後於同一事件物件重建, 舊實體之監聽若留著會先於新實體處理同一事件
+    let hs = []
+    let on = (name, h) => {
+        instWConverClient.on(name, h)
+        hs.push({ ev: instWConverClient, name, h })
+    }
+
+    //clearBroadcast, clearSync, 包裝下層之同名函數: 先標記已停止並移除本套件之監聽, 再呼叫下層; 任一被呼叫即停止本套件(下層之事件仍依各自之停止函數, 故停止時兩者皆須呼叫), 可重複呼叫
+    //why: 下層於停止後皆不再派發事件(含已排定與在途者), 本套件原無停止狀態, 停止前已啟動之流程(取得函數清單→getServerMethods→取時間戳→同步)於停止後照常呼叫回調、發出error並續送請求
+    each(['clearBroadcast', 'clearSync'], (k) => {
+        let clearCore = instWConverClient[k]
+        instWConverClient[k] = () => {
+            isStopped = true
+            removeListeners(hs)
+            hs = []
+            clearCore()
+        }
+    })
+
+    //SELF, 本套件自身之請求(取得函數清單、時間戳, 與同步表之select)一律以SELF為this呼叫executeShell所建之函數, 使停止時尚在等待getToken者不送出; 使用端呼叫$fapi時this為其所在物件或undefined, 不受影響
+    let SELF = {}
+
     function executeShell(func) {
         //通過instWConverClient.execute調用後端函數func
         async function f() {
+
+            //self, 是否為本套件自身之請求(見SELF)
+            let self = this === SELF
 
             //pm
             let pm = genPm()
@@ -266,6 +307,12 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             let token = getToken()
             if (ispm(token)) {
                 token = await token
+            }
+
+            //check, 本套件自身之請求於等待token期間已停止者不送出: 尚未交給通訊物件, 送出則其結果亦被忽略, 伺服器已停時更觸發通訊物件之重試與逐次error
+            if (self && isStopped) {
+                pm.reject('stopped by clearBroadcast or clearSync')
+                return pm
             }
 
             //check, 若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
@@ -318,6 +365,11 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     function updateSyncTable(data) {
         //當收到後端broadcast
 
+        //check, 停止後不再交付同步(例如停止前已送出之取時間戳於停止後才回到)
+        if (isStopped) {
+            return
+        }
+
         //check, 當mode='syncKpTable'代表為資料同步器發送訊息(各資料表時間戳), 調用instWConverClient.updateTableTags(傳入時間戳), 會觸發instWConverClient.refreshTable事件, 於內呼叫API來更新資料
         if (get(data, 'mode') === 'syncKpTable') {
             // console.log('syncKpTable', data)
@@ -332,8 +384,13 @@ function WServWebdataClient(instWConverClient, opt = {}) {
 
     }
 
-    instWConverClient.on('openOnce', function() {
+    on('openOnce', function() {
         // console.log('instWConverClient: openOnce')
+
+        //check, 於本次派發中已停止者不啟動(例如使用端於建構前即掛之openOnce監聽內停止; 停止時本監聽已移除, 其後之openOnce不會進來)
+        if (isStopped) {
+            return
+        }
 
         //core
         let core = async() => {
@@ -342,16 +399,22 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             //2.於openOnce內再通過execute調用[sys:getFuncList]後, 才能取得伺服器可用函數清單, 有orm可用函數清單才有辦法綁定kpExec, 才有辦法針對後端orm對應函數執行select撈取資料庫數據
             //3.updateSyncTable內是通過updateTableTags去觸發[w-sync-webdata的client]的refreshTable, refreshTable再通過kpExec[input.tableName].select()去撈資料庫資料
             //4.調用[sys:getFuncList]與[sys:getTableTags]不能保證回傳順序, 得要強制await
+            //5.停止時尚在等待getToken之請求不送出(見SELF); 已交給通訊物件者無法中止, 於停止後才回到者: 函數清單照常綁定而不呼叫getServerMethods(callHook已停止), 時間戳不交付同步(updateSyncTable已停止), 失敗不發出error(emitError已停止); 本流程非監聽, 停止時移除監聽不會中斷它, 故須逐步檢查
 
-            //getFuncList, 取得可用函數清單
-            let res = await executeShell('[sys:getFuncList]')()
+            //getFuncList, 取得可用函數清單, 本套件自身之請求(見SELF)
+            let res = await executeShell('[sys:getFuncList]').call(SELF)
             // console.log('[sys:getFuncList] res', res)
 
             //bindFuncs
             bindFuncs(res)
 
-            //getTableTags, 取得同步資料
-            let data = await executeShell('[sys:getTableTags]')()
+            //check, 停止後(含於getServerMethods內停止)不再取時間戳
+            if (isStopped) {
+                return
+            }
+
+            //getTableTags, 取得同步資料, 本套件自身之請求(見SELF)
+            let data = await executeShell('[sys:getTableTags]').call(SELF)
             // console.log('[sys:getTableTags] data', data)
 
             //updateSyncTable, 啟動並連線成功後取得時間戳
@@ -367,7 +430,7 @@ function WServWebdataClient(instWConverClient, opt = {}) {
 
     })
 
-    instWConverClient.on('broadcast', function(data) {
+    on('broadcast', function(data) {
         // console.log('instWConverClient: broadcast', data)
 
         //check, 綁定完成前略過同步廣播: 此時尚無表操作可取資料, 照常處理只會使各表取資料失敗而發出error(時間戳不推進, 資料不會遺失); 綁定後core會以[sys:getTableTags]取得當下全部時間戳, 不會遺漏
@@ -384,13 +447,13 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     // instWConverClient.setTableTags(tableTagsCl)
 
     //refreshState
-    instWConverClient.on('refreshState', (msg) => {
+    on('refreshState', (msg) => {
         // console.log('refreshState needToRefresh', msg.needToRefresh)
         callHook(getRefreshState, msg)
     })
 
     //refreshTable, 收到資料表時間戳有變更通知, 各路徑皆須以pm.resolve或pm.reject結束input.pm; 失敗一律reject, 由w-sync-webdata發出帶表名與時間戳之error並不推進該表時間戳, 再收到同一時間戳時重抓, 故本套件不另發error
-    instWConverClient.on('refreshTable', (input) => {
+    on('refreshTable', (input) => {
         // console.log('refreshTable', input)
 
         //exec, 以與bindFuncs相同之路徑解析取得該表之表操作物件
@@ -414,9 +477,15 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             return
         }
 
-        //select, 失敗(例如授權拒絕、傳輸失敗)時以原拒絕值reject, 不可以空資料結束, 否則前端該表被清空且記下時間戳, 到該表下次變動前不重抓
+        //check, 於本次派發中已停止者(例如getRefreshTable內停止; 停止時本監聽已移除, 其後之refreshTable不會進來)不再送出select, 以字串拒絕(w-sync-webdata未停止時由其發出帶表名之error)
+        if (isStopped) {
+            input.pm.reject('stopped by clearBroadcast or clearSync')
+            return
+        }
+
+        //select, 失敗(例如授權拒絕、傳輸失敗)時以原拒絕值reject, 不可以空資料結束, 否則前端該表被清空且記下時間戳, 到該表下次變動前不重抓; 本套件自身之請求(見SELF)
         // console.log('getAPIData before: ', input.tableName)
-        funSelect() //沒限制{isActive:'y'}, 後端須基於權限給予適合數據
+        funSelect.call(SELF) //沒限制{isActive:'y'}, 後端須基於權限給予適合數據
             .then((data) => {
                 // console.log('getAPIData after: ', input.tableName, data)
                 input.pm.resolve(data)
@@ -428,7 +497,7 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     })
 
     //getData
-    instWConverClient.on('getData', (data) => {
+    on('getData', (data) => {
         // console.log('getData', data)
 
         //recvData
@@ -437,11 +506,11 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     })
 
     //beforeUpdateTableTags, afterUpdateTableTags, beforePollingTableTags, afterPollingTableTags
-    instWConverClient.on('beforeUpdateTableTags', (msg) => {
+    on('beforeUpdateTableTags', (msg) => {
         // console.log('client: beforeUpdateTableTags', msg)
         callHook(getBeforeUpdateTableTags, msg)
     })
-    instWConverClient.on('afterUpdateTableTags', (msg) => {
+    on('afterUpdateTableTags', (msg) => {
         // console.log('client: afterUpdateTableTags', msg)
         callHook(getAfterUpdateTableTags, msg)
     })

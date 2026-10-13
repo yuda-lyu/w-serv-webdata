@@ -151,6 +151,25 @@ describe('unit-WServWebdataServer', function() {
             expectNoSideEffect(base({ kpOrm: { tabA: mkOrm(), tabB: null }, tableNamesSync: ['tabA', 'tabB'] }), 'invalid kpOrm[tabB]')
         })
 
+        //R49: w-serv-broadcast 1.1.7起clearBroadcast以off移除監聽, 本套件之停止與建構失敗之catch皆呼叫之; 原只檢查emit與on, 缺off時建構成功, 而於停止或catch內拋TypeError(後者蓋掉原錯誤且略過clearSync). w-serv-broadcast 1.1.8起其伺服端亦於建構時檢查, 但本套件先建構之WSyncWebdataServer已擴充傳入之物件, 故仍須於建構任何元件之前檢查
+        it('instWConverServer無off函數時於建構任何元件之前拋錯', function() {
+            let inst = evem()
+            inst.off = undefined
+            insts.push(inst)
+            let n0 = countTimeout()
+            try {
+                assert.throws(() => {
+                    new WServWebdataServer(inst, { fpTableTags })
+                }, { message: 'instWConverServer is not an EventEmitter' })
+                assert.strict.equal(inst.clearBroadcast, undefined)
+                assert.strict.equal(inst.clearSync, undefined)
+                assert.strict.equal(countTimeout(), n0)
+            }
+            finally {
+                delete inst.off //還原eventemitter3原型之off, 供after之clearBroadcast使用(舊碼會建構成功)
+            }
+        })
+
         //R38: 同步之表須有經授權之表操作select
         it('同步之表無表操作select', function() {
             let kpOrm = { tabA: mkOrm(), tabC: mkOrm(), tabS: mkOrm() }
@@ -237,6 +256,7 @@ describe('unit-WServWebdataServer', function() {
             assert.strict.equal(tabA.listenerCount('change'), 1, 'tabA之監聽已移除')
             assert.strict.equal(fs.readFileSync(fpTableTags, 'utf8'), 'PRE', '未寫入時間戳檔')
             assert.strict.equal(countTimeout(), n0, '廣播之計時器已停止')
+            assert.strict.equal(inst.listeners('execute').length, 1, '廣播之execute監聽已由clearBroadcast移除, 僅餘資料通道者(L8)')
         })
 
         //R40: genTag回傳非字串時拋錯, 於掛監聽與寫檔之前
@@ -259,6 +279,7 @@ describe('unit-WServWebdataServer', function() {
     describe('釋放', function() {
 
         //R46: w-sync-webdata之clearSync不處理上層掛於外部物件之監聽, 須由本套件移除(原無釋放途徑, 以同一kpOrm重建會累加監聽)
+        //R53: 掛於通訊物件之changeTableTags監聽亦由clearSync移除(掛的人負責移除; 原殘留而與文件「僅餘資料通道之execute監聽」不符)
         it('clearSync時移除掛於kpOrm之change監聽且可重複呼叫, 之後之變更不再更新時間戳', async function() {
             let tabA = mkOrm()
             let tabB = mkOrm()
@@ -267,11 +288,13 @@ describe('unit-WServWebdataServer', function() {
             new WServWebdataServer(inst, base({ fpTableTags: `${fdTmp}/release.json`, kpOrm: { tabA, tabB }, tableNamesSync: ['tabA', 'tabB'] }))
             assert.strict.equal(tabA.listenerCount('change'), 2)
             assert.strict.equal(tabB.listenerCount('change'), 2)
+            assert.strict.equal(inst.listenerCount('changeTableTags'), 1)
             let tags0 = JSON.stringify(inst.getTableTags())
             inst.clearSync()
             inst.clearSync()
             assert.strict.equal(tabA.listenerCount('change'), 1, '只移除本套件所掛者, 使用端既有之監聽保留')
             assert.strict.equal(tabB.listenerCount('change'), 1)
+            assert.strict.equal(inst.listenerCount('changeTableTags'), 0, '掛於通訊物件之changeTableTags監聽已移除')
             tabA.emit('change')
             await sleep(300)
             assert.strict.equal(JSON.stringify(inst.getTableTags()), tags0)
