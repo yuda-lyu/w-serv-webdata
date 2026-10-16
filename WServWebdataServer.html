@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkFind">checkFind</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
     
 </nav>
 
@@ -81,18 +81,19 @@
 <li>各關卡(getUserIdByToken、authorizeExec、operOrm、kpFunExt之函數)拋錯或reject時，其值原樣成為前端收到之拒絕值，故欲回傳語系鍵須reject字串，Error物件經序列化後前端收到'Error: 訊息'字串。各關卡之回傳值與拒絕值須為可序列化之格式，此為設計要求，不支援之格式(例如循環參照、BigInt)本就不在設計範圍內，前端必然失敗。</li>
 <li>僅getUserIdByToken之拒絕會發出error事件(其值可能為undefined或null)；authorizeExec、operOrm與kpFunExt之拒絕不發出error事件，需於伺服端紀錄者請於函數內自行處理。</li>
 <li>authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫該表之表操作select且不帶參數，故tableNamesSync內之表須在tableNamesExec中、methodsExec須含'select'(kpFunExt提供之同名函數不算)，否則建構時拋錯；其select須對所有連線者放行，否則被拒絕之前端取不到該表資料，且每次重抓皆發出error事件。需逐筆控管可見範圍者請改用kpFunExt提供且不列入同步。</li>
-<li>authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。</li>
+<li>authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改(select、delAll之input為經第10點白名單檢核之凍結複本，就地修改不生效：嚴格模式下拋TypeError，非嚴格模式靜默忽略；operOrm與w-serv-orm之addFunCheck、addFunPreProcessing收到之亦為此複本，需補條件請建新物件，例如{ ...input, ownerId: userId })。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。</li>
 <li>getUserIdByToken須完整驗證token(不可只解碼)，其token取自請求內容，與通訊層(例如w-converhp之verifyConn)所驗證者為不同來源。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。</li>
 <li>函數名須能被前端綁定(前端依函數名之路徑綁定，解析同lodash之toPath，例如'tabA[select]'即['tabA','select'])：路徑不得為空、不得有空段、各段不得為'<strong>proto</strong>'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)；不同函數名(含表操作與kpFunExt)不得解析為同一路徑(例如'a.b'與'a[&quot;b&quot;]')，亦不得互為前綴(例如'a'與'a.b')。違反者於建構時拋錯。</li>
 <li>設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：instWConverServer非事件物件(無emit、on或off函數)；未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播(clearBroadcast)、釋放同步元件(clearSync)並移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充且仍有資料通道之execute監聽，不可再以同一事件物件重新建構。</li>
 <li>停止服務時依序呼叫clearBroadcast(停止廣播：清除廣播之計時器與在線偵測並移除輪詢之監聽，對已進入之客戶端補發clientLeave與clientChange使進出成對後，不再派發廣播之事件)、clearSync(釋放資料同步)，再停止通訊服務(例如WConverhpServer之stop)。只呼叫clearBroadcast而未停止通訊服務時，前端之輪詢改由資料通道回應{state:'error',msg:'invalid token'}，前端每輪發出輪詢失敗之error事件({msg:'[sys:polling] error',err:{state:'error',msg:'invalid token'}})且收不到推播。clearSync會移除本套件掛於kpOrm之change監聽與掛於傳入事件物件之changeTableTags監聽、取消待推播之時間戳並將尚未落檔之時間戳寫入檔案，之後kpOrm之變更不再更新時間戳與推播，可重複呼叫。釋放後傳入之事件物件上仍有資料通道之execute監聽，不可再以同一事件物件重新建構。</li>
+<li>表操作select、delAll之find(前端所送之第1個參數，即查詢條件)來自不可信之客戶端，於呼叫authorizeExec與operOrm之前先經固定之白名單檢核(不提供放寬之設定)：find須為未給或一般物件；各鍵須為識別字(Unicode字母、組合符號、數字、底線，非數字開頭，長度不超過128，至多64個鍵)，故以$開頭、含點號、為Object.prototype之成員名(例如__proto__、constructor、toString)、為'prototype'或'length'(暫行)之鍵皆不可；各值須為純量(字串不超過1024字元且不含NUL、有限數字、布林，不含null)，或恰含單鍵$in之物件(值為純量之陣列)，且整個find之$in元素總數(跨鍵合計，非逐鍵)至多1000個。因此null、陣列、字串、數字、布林、二進位等非條件物件，運算子(例如$or、$where、$regex、$gt)與巢狀物件一律拒絕；需要更豐富之查詢者請改用kpFunExt並自行把關，可引用checkFind(import checkFind from 'w-serv-webdata/src/checkFind.mjs'，回傳{ok,find|reason})檢核。不合者以字串'invalid find[原因碼]'拒絕(原因碼為notObject、badKey、badOperator、badValue、badIn、tooManyKeys、tooManyIn，不含前端所送之值)，不呼叫authorizeExec與operOrm，亦不發出error事件；先驗後授權，故authorizeExec只會見到白名單內之形狀。通過者以全新且凍結之複本取代，authorizeExec與operOrm收到同一份，授權所見即交給ORM者(ORM邊界以內)。檢核通過不代表後端安全：字串值之語意(例如大小寫、數字字串、陣列欄位之包含)由各ORM後端決定；另w-serv-orm之procOrm對字串型主鍵之id條件，會把有限數字(含$in之元素)轉為字串後才交後端，授權函數收到的仍是數字，故授權函數依id判斷時請以String()正規化後再比較。find檢核依方法名精確比對'select'與'delAll'(大小寫、空白皆視為不同名)，methodsExec若列入文件所列以外之方法名(例如w-orm-*另有之帶條件方法)，其input不經檢核，須由authorizeExec或自訂之operOrm把關，建議只列文件所列之方法。insert、save、del、mix之input不檢核形狀；delAll未給條件或給{}時與select同規則放行，其語意為全部(delAll請於authorizeExec限制)。第1個參數之後之參數(例如order、limit)丟棄，不交給authorizeExec與operOrm。通訊內容經JSON序列化，值為undefined之物件鍵會消失(例如{ ownerId: undefined }伺服端只見{}，select會回全表、delAll會全刪)，顯式傳入undefined之find會成為null而被拒絕，前端勿傳undefined之條件值。另前端所送之參數(<strong>sysInputArgs</strong>)須為陣列(對所有函數)，否則回應{state:'error',msg:'invalid input'}。</li>
 </ol></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line475">line 475</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line476">line 476</a>
     </li></ul></dd>
     
 
@@ -827,7 +828,7 @@ setTimeout(() => {
                 </td>
             
 
-            <td class="description last"><p>輸入資料表操作之授權函數，useDbOrm為true時必填，未給或非函數時拋錯。前端呼叫表操作時，會於呼叫operOrm之前傳入物件{ userId, tableName, methodName, input }，可使用sync或async函數，回傳值須嚴格等於true才放行。userId為getUserIdByToken所得，取不到時為空字串，宜拒絕；methodName為methodsExec所列之方法，宜以白名單判斷，其中'mix'之input可含多筆操作須自行解析，規則詳見上方說明，預設null</p></td>
+            <td class="description last"><p>輸入資料表操作之授權函數，useDbOrm為true時必填，未給或非函數時拋錯。前端呼叫表操作時，會於呼叫operOrm之前傳入物件{ userId, tableName, methodName, input }(select、delAll之input為經白名單檢核之全新凍結複本，未給時為undefined，規則見上方第10點；其餘方法之input為前端原樣所送)，可使用sync或async函數，回傳值須嚴格等於true才放行。userId為getUserIdByToken所得，取不到時為空字串，宜拒絕；methodName為methodsExec所列之方法，宜以白名單判斷，其中'mix'之input可含多筆操作須自行解析，規則詳見上方說明，預設null</p></td>
         </tr>
 
     
@@ -1079,7 +1080,7 @@ setTimeout(() => {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 14 2026 00:47:15 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 17 2026 02:37:05 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>
