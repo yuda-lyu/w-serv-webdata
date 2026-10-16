@@ -16,6 +16,17 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 * `w-serv-webdata-server`: for nodejs server
 * `w-serv-webdata-client`: for nodejs and browser client
 
+## Data channel: find whitelist
+資料通道(`useDbOrm: true`)開放表操作給前端時，`select`、`delAll` 之 find(前端所送第1個參數，即查詢條件)來自不可信之客戶端，於呼叫 `authorizeExec` 與 `operOrm` 之前先經固定之白名單檢核(不提供放寬之設定)：
+* find 須為未給或一般物件；各鍵須為識別字(Unicode 字母、組合符號、數字、底線，非數字開頭，長度不超過 128，至多 64 個鍵)，故以 `$` 開頭、含點號、為 `Object.prototype` 之成員名(例如 `__proto__`、`constructor`)、為 `prototype` 或 `length`(暫行)之鍵皆不可。
+* 各值須為純量(字串不超過 1024 字元且不含 NUL、有限數字、布林，不含 `null`)，或恰含單鍵 `$in` 之物件(值為純量之陣列)，且整個 find 之 `$in` 元素總數(跨鍵合計，非逐鍵)至多 1000 個，超過以 `invalid find[tooManyIn]` 拒絕。
+* 因此 `null`、陣列、字串、數字、布林、二進位等非條件物件，運算子(例如 `$or`、`$where`、`$regex`、`$gt`)與巢狀物件一律拒絕，前端收到字串 `invalid find[原因碼]`，不呼叫 `authorizeExec` 與 `operOrm`(先驗後授權)；需要更豐富之查詢者請改用 `kpFunExt` 並自行把關，可引用 `import checkFind from 'w-serv-webdata/src/checkFind.mjs'` 檢核。
+* 通過者以全新且凍結之複本取代，`authorizeExec` 與 `operOrm` 收到同一份，授權所見即交給 ORM 者；`authorizeExec` 之 `input` 僅供判斷，就地修改不生效(嚴格模式下拋 `TypeError`，非嚴格模式靜默忽略)；`operOrm` 與 w-serv-orm 之 `addFunCheck`、`addFunPreProcessing` 收到之亦為此複本，需補條件請建新物件(例如 `{ ...input, ownerId: userId }`)。
+* 通訊內容經 JSON 序列化，值為 `undefined` 之物件鍵會消失(例如 `{ ownerId: undefined }` 伺服端只見 `{}`，`select` 會回全表、`delAll` 會全刪)，顯式傳入 `undefined` 之 find 會成為 `null` 而被拒絕，前端勿傳 `undefined` 之條件值。
+* `delAll` 未給條件或給 `{}` 時與 `select` 同規則放行，其語意為全部，請於 `authorizeExec` 限制；`insert`、`save`、`del`、`mix` 之 `input` 不檢核形狀；第1個參數之後之參數(例如 order、limit)丟棄；前端所送之參數(`__sysInputArgs__`)須為陣列，否則回應 `{ state: 'error', msg: 'invalid input' }`。
+* 檢核通過不代表後端安全：字串值之語意(例如大小寫、數字字串、陣列欄位之包含)由各 ORM 後端決定；w-serv-orm 之 `procOrm` 對字串型主鍵之 `id` 條件，會把有限數字(含 `$in` 之元素)轉為字串後才交後端，`authorizeExec` 收到的仍是數字，依 `id` 判斷時請以 `String()` 正規化後再比較。
+* find 檢核依方法名精確比對 `select` 與 `delAll`(大小寫、空白皆視為不同名)；`methodsExec` 若列入文件所列以外之方法名(例如 w-orm-* 另有之帶條件方法)，其 `input` 不經檢核，須由 `authorizeExec` 或自訂之 `operOrm` 把關，建議只列文件所列之方法。
+
 ## Installation
 
 ### Using npm(ES6 module):
@@ -449,14 +460,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.12/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.13/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.12/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.13/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

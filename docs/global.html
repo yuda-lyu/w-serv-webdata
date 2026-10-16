@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkFind">checkFind</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
     
 </nav>
 
@@ -321,6 +321,313 @@
     <dd>
         
 <span class="param-type">Boolean</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="checkFind"><span class="type-signature"></span>checkFind<span class="signature">(find, opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Object}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>檢核資料通道前端所送之find(表操作select、delAll之查詢條件)是否在白名單內</p>
+<p>前端所送之find來自不可信之客戶端，資料通道於呼叫authorizeExec與operOrm之前以此函數檢核。白名單為固定集合(最小集)：find為未給(undefined)或一般物件，各鍵為識別字(不為$開頭、不含點號、不為Object.prototype之成員名、不為'prototype'與'length'，長度不超過128，至多64個鍵)，各值為純量(字串不超過1024字元且不含NUL、有限數字、布林，不含null)或恰含單鍵$in之物件(值為純量之陣列)，且整個find之$in元素總數(跨鍵合計)至多1000個。非條件物件(null、陣列、字串、數字、布林、二進位等)、運算子($or、$where、$regex等)、巢狀物件等一律拒絕，不靜默忽略。</p>
+<p>通過者回傳全新且凍結之複本(只含已驗證之鍵與值，頂層值與$in之元素各只讀取一次)，之後授權與ORM收到者即此複本。通過不代表後端安全：字串值之語意(例如大小寫、數字字串、陣列欄位之包含)由各ORM後端決定。kpFunExt收到之參數未經此檢核，其作者可引用本函數自行把關(例如import checkFind from 'w-serv-webdata/src/checkFind.mjs')。</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="checkFind.mjs.html">checkFind.mjs</a>, <a href="checkFind.mjs.html#line64">line 64</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-examples">Example</h5>
+    
+    <pre class="prettyprint"><code>import checkFind from 'w-serv-webdata/src/checkFind.mjs'
+
+let r = checkFind({ id: { $in: ['a1', 'a2'] }, name: 'alpha' })
+console.log(r)
+// => { ok: true, find: { id: { $in: ['a1', 'a2'] }, name: 'alpha' } } (凍結複本)
+
+r = checkFind({ $or: [{ name: 'alpha' }] })
+console.log(r)
+// => { ok: false, reason: 'badKey' }
+
+r = checkFind({})
+console.log(r)
+// => { ok: true, find: {} }
+
+r = checkFind({}, { requireKey: true })
+console.log(r)
+// => { ok: false, reason: 'emptyFind' }</code></pre>
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>find</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">*</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入前端所送之find，可為任意值</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>opt</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入設定物件，預設{}</p>
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>requireKey</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>false</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否要求至少1個條件，須嚴格等於true才生效，生效時未給與{}以'emptyFind'拒絕(供呼叫端自行限制delAll不得無條件全刪)，預設false</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>通過時回傳{ok:true,find}，find為凍結複本(find未給時為undefined)；不合時回傳{ok:false,reason}，reason為原因碼字串：'notObject'(非一般物件，或檢視時拋錯(例如getter拋錯、已撤銷之Proxy)，本函數不拋出)、'badKey'(鍵不合)、'badOperator'(物件值不是恰含單鍵$in)、'badValue'(值不合)、'badIn'($in不是純量之密集陣列)、'tooManyKeys'(鍵數超過上限)、'tooManyIn'(整個find之$in元素總數超過上限)、'emptyFind'(requireKey生效而無條件)；原因碼不含前端所送之值</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Object</span>
 
 
 
@@ -1371,7 +1678,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServerExec.mjs.html">WServWebdataServerExec.mjs</a>, <a href="WServWebdataServerExec.mjs.html#line66">line 66</a>
+        <a href="WServWebdataServerExec.mjs.html">WServWebdataServerExec.mjs</a>, <a href="WServWebdataServerExec.mjs.html#line80">line 80</a>
     </li></ul></dd>
     
 
@@ -1684,7 +1991,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Oct 14 2026 00:47:15 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 17 2026 02:37:05 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

@@ -1,0 +1,152 @@
+//白名單常數
+const REG_KEY = /^[\p{L}_][\p{L}\p{M}\p{N}_]*$/u //鍵須為識別字(Unicode字母/組合符號/數字/底線, 非數字開頭), 故$開頭、點號、空白、符號皆不合
+const KEYS_DENY = ['prototype', 'length'] //暫行拒絕之鍵: length於w-serv-orm之castIdFind以lodash each迭代, 具非負整數length之物件被當成陣列樣物件而條件整個消失(回全表, delAll刪全表), 該缺陷修正後可移除
+const MAX_KEY_LEN = 128
+const MAX_KEYS = 64
+const MAX_IN = 1000 //整個find之$in元素總數上限(跨鍵合計, 非逐鍵): mingo系之$in成本正比於列數乘元素數(8000列乘10000元素約4.85秒, 乘1000元素約216毫秒), 逐鍵計時64鍵並存可達64000元素(約54倍成本)
+const MAX_STR = 1024
+
+
+//isPlain, 一般物件: 原型為Object.prototype或null, 無Symbol鍵, 無不可列舉之自有屬性(複本只含可列舉之字串鍵, 其餘不靜默丟棄而拒絕)
+function isPlain(v) {
+    if (Object.prototype.toString.call(v) !== '[object Object]') {
+        return false
+    }
+    let p = Object.getPrototypeOf(v)
+    if (p !== Object.prototype && p !== null) {
+        return false
+    }
+    return Object.getOwnPropertySymbols(v).length === 0 && Object.getOwnPropertyNames(v).length === Object.keys(v).length
+}
+
+
+//isScalar, 純量: 字串(不超過MAX_STR且不含NUL)、有限數字、布林, 不含null
+function isScalar(v) {
+    if (typeof v === 'string') {
+        return v.length <= MAX_STR && v.indexOf('\u0000') < 0
+    }
+    return typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))
+}
+
+
+/**
+ * 檢核資料通道前端所送之find(表操作select、delAll之查詢條件)是否在白名單內
+ *
+ * 前端所送之find來自不可信之客戶端，資料通道於呼叫authorizeExec與operOrm之前以此函數檢核。白名單為固定集合(最小集)：find為未給(undefined)或一般物件，各鍵為識別字(不為$開頭、不含點號、不為Object.prototype之成員名、不為'prototype'與'length'，長度不超過128，至多64個鍵)，各值為純量(字串不超過1024字元且不含NUL、有限數字、布林，不含null)或恰含單鍵$in之物件(值為純量之陣列)，且整個find之$in元素總數(跨鍵合計)至多1000個。非條件物件(null、陣列、字串、數字、布林、二進位等)、運算子($or、$where、$regex等)、巢狀物件等一律拒絕，不靜默忽略。
+ *
+ * 通過者回傳全新且凍結之複本(只含已驗證之鍵與值，頂層值與$in之元素各只讀取一次)，之後授權與ORM收到者即此複本。通過不代表後端安全：字串值之語意(例如大小寫、數字字串、陣列欄位之包含)由各ORM後端決定。kpFunExt收到之參數未經此檢核，其作者可引用本函數自行把關(例如import checkFind from 'w-serv-webdata/src/checkFind.mjs')。
+ *
+ * @param {*} find 輸入前端所送之find，可為任意值
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {Boolean} [opt.requireKey=false] 輸入是否要求至少1個條件，須嚴格等於true才生效，生效時未給與{}以'emptyFind'拒絕(供呼叫端自行限制delAll不得無條件全刪)，預設false
+ * @returns {Object} 通過時回傳{ok:true,find}，find為凍結複本(find未給時為undefined)；不合時回傳{ok:false,reason}，reason為原因碼字串：'notObject'(非一般物件，或檢視時拋錯(例如getter拋錯、已撤銷之Proxy)，本函數不拋出)、'badKey'(鍵不合)、'badOperator'(物件值不是恰含單鍵$in)、'badValue'(值不合)、'badIn'($in不是純量之密集陣列)、'tooManyKeys'(鍵數超過上限)、'tooManyIn'(整個find之$in元素總數超過上限)、'emptyFind'(requireKey生效而無條件)；原因碼不含前端所送之值
+ * @example
+ *
+ * import checkFind from 'w-serv-webdata/src/checkFind.mjs'
+ *
+ * let r = checkFind({ id: { $in: ['a1', 'a2'] }, name: 'alpha' })
+ * console.log(r)
+ * // => { ok: true, find: { id: { $in: ['a1', 'a2'] }, name: 'alpha' } } (凍結複本)
+ *
+ * r = checkFind({ $or: [{ name: 'alpha' }] })
+ * console.log(r)
+ * // => { ok: false, reason: 'badKey' }
+ *
+ * r = checkFind({})
+ * console.log(r)
+ * // => { ok: true, find: {} }
+ *
+ * r = checkFind({}, { requireKey: true })
+ * console.log(r)
+ * // => { ok: false, reason: 'emptyFind' }
+ *
+ */
+function checkFind(find, opt = {}) {
+    try {
+        return inspect(find, opt)
+    }
+    catch (err) {
+        return { ok: false, reason: 'notObject' } //檢視前端所送之值時拋錯(例如getter拋錯、已撤銷之Proxy)視為非可檢視之一般物件, 不拋出
+    }
+}
+
+
+//inspect, checkFind之本體
+function inspect(find, opt) {
+    let bad = (reason) => ({ ok: false, reason })
+
+    //未給
+    if (find === undefined) {
+        return opt.requireKey === true ? bad('emptyFind') : { ok: true, find }
+    }
+
+    //須為一般物件
+    if (!isPlain(find)) {
+        return bad('notObject')
+    }
+
+    //keys
+    let ks = Object.keys(find)
+    if (ks.length > MAX_KEYS) {
+        return bad('tooManyKeys')
+    }
+    if (opt.requireKey === true && ks.length === 0) {
+        return bad('emptyFind')
+    }
+
+    let out = {}
+    let total = 0 //整個find已累計之$in元素數(以各陣列宣告之長度計, 先於逐元素檢查累加, 使超限者不致逐一迭代)
+    for (let k of ks) {
+
+        //key, 含Object.prototype之成員名(__proto__、constructor、toString等, 與w-orm-reladb之cvFind同法)
+        if (k.length > MAX_KEY_LEN || KEYS_DENY.includes(k) || k in Object.prototype || !REG_KEY.test(k)) {
+            return bad('badKey')
+        }
+
+        //value, 每個值只讀取一次
+        let v = find[k]
+        if (isScalar(v)) {
+            out[k] = v
+        }
+        else if (isPlain(v)) {
+            let vks = Object.keys(v)
+            if (vks.length !== 1 || vks[0] !== '$in') {
+                return bad('badOperator')
+            }
+            let arr = v.$in
+            if (!Array.isArray(arr) || Object.getOwnPropertySymbols(arr).length > 0) {
+                return bad('badIn')
+            }
+            let n = arr.length
+            total += n
+            if (total > MAX_IN) { //跨鍵合計, 非逐鍵
+                return bad('tooManyIn')
+            }
+            if (Object.getOwnPropertyNames(arr).length !== n + 1) { //密集陣列之自有字串鍵恰為n個索引加length, 多(可列舉或不可列舉之額外屬性)或少(稀疏洞)皆拒絕
+                return bad('badIn')
+            }
+            let a = []
+            for (let i = 0; i < n; i++) {
+                if (!Object.prototype.hasOwnProperty.call(arr, i)) { //稀疏洞不得由原型鏈上之值補上(與上方計數互補: 洞與額外屬性並存時計數可恰好相等)
+                    return bad('badIn')
+                }
+                let e = arr[i] //每個元素只讀取一次
+                if (!isScalar(e)) {
+                    return bad('badIn')
+                }
+                a.push(e)
+            }
+            out[k] = Object.freeze({ $in: Object.freeze(a) })
+        }
+        else {
+            return bad('badValue')
+        }
+
+    }
+
+    return { ok: true, find: Object.freeze(out) }
+}
+
+
+export { REG_KEY, KEYS_DENY, MAX_KEY_LEN, MAX_KEYS, MAX_IN, MAX_STR }
+export default checkFind
