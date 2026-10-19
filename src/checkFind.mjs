@@ -38,7 +38,7 @@ function isScalar(v) {
  *
  * @param {*} find 輸入前端所送之find，可為任意值
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {Boolean} [opt.requireKey=false] 輸入是否要求至少1個條件，須嚴格等於true才生效，生效時未給與{}以'emptyFind'拒絕(供呼叫端自行限制delAll不得無條件全刪)，預設false
+ * @param {Boolean} [opt.requireKey=false] 輸入是否要求至少1個條件，須嚴格等於true才生效，生效時未給與{}以'emptyFind'拒絕(供kpFunExt作者等呼叫端自行限制，例如要求其自訂之刪除函數須至少1個條件；資料通道本身不使用此選項，通道之delAll與後端語意一致，不給條件即刪除全部，須審慎使用、非必要不用，見WServWebdataServer之第10點)，預設false
  * @returns {Object} 通過時回傳{ok:true,find}，find為凍結複本(find未給時為undefined)；不合時回傳{ok:false,reason}，reason為原因碼字串：'notObject'(非一般物件，或檢視時拋錯(例如getter拋錯、已撤銷之Proxy)，本函數不拋出)、'badKey'(鍵不合)、'badOperator'(物件值不是恰含單鍵$in)、'badValue'(值不合)、'badIn'($in不是純量之密集陣列)、'tooManyKeys'(鍵數超過上限)、'tooManyIn'(整個find之$in元素總數超過上限)、'emptyFind'(requireKey生效而無條件)；原因碼不含前端所送之值
  * @example
  *
