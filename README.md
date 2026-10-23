@@ -28,32 +28,39 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 * find 檢核依方法名精確比對 `select` 與 `delAll`(大小寫、空白皆視為不同名)；`methodsExec` 若列入文件所列以外之方法名(例如 w-orm-* 另有之帶條件方法)，其 `input` 不經檢核，須由 `authorizeExec` 或自訂之 `operOrm` 把關，建議只列文件所列之方法。
 
 ## Identity verification
-身分驗證責任：本套件不驗證 token，只於各關卡呼叫使用方注入之函數；未注入時之預設為放行或無身分(`getUserIdByToken` 預設回空字串，`sysFuncsPublic` 預設只公開函數名稱清單)。使用方須自行完整驗證——通訊層(例如 w-converhp 之 `verifyConn`)驗連線之 token(含本系統使用者存在、啟用、部署方授權)；`getUserIdByToken` 反查執行身分，**即驗證身分之步驟**，須與通訊層同等完整(token 有效、本系統使用者存在且啟用、部署方授權)，**不可只解碼或只查 id**；`authorizeExec` 授權表操作(預設拒絕)；`apis` 路由與 `kpFunExt` 各自把關，含函數層級之角色或成員檢查。
+身分驗證責任：本套件不驗證 token，只於各關卡呼叫使用方注入之函數；未注入時之預設為放行或無身分(`getUserIdByToken` 預設回空字串，`sysFuncsPublic` 預設三者皆公開以相容已發布之前端元件，建議使用端改用帶 token 之前端元件後設為只公開函數名稱清單)。使用方須自行完整驗證——通訊層(例如 w-converhp 之 `verifyConn`)驗連線之 token(含本系統使用者存在、啟用、部署方授權)；`getUserIdByToken` 反查執行身分，**即驗證身分之步驟**，須與通訊層同等完整(token 有效、本系統使用者存在且啟用、部署方授權)，**不可只解碼或只查 id**；`authorizeExec` 授權表操作(預設拒絕)；`apis` 路由與 `kpFunExt` 各自把關，含函數層級之角色或成員檢查。
 
 ## Data channel: system functions
 資料通道有三個系統函數，依作用分類(只回公開資訊者可公開；會回資料或改變狀態者須身分)：
-* `[sys:getFuncList]`：回函數名稱清單，預設公開(`getUserIdByToken` 得空字串亦放行)。
-* `[sys:getTableTags]`：回同步表名與時間戳，須身分。
-* `[sys:polling]`：由 w-serv-broadcast 處理，會建立在線身分並取走該 `clientId` 佇列內之全部廣播(含同步表時間戳廣播與部署方 `broadcast()` 之內容)，須身分。
+* `[sys:getFuncList]`：回函數名稱清單，可公開(`getUserIdByToken` 得空字串亦放行)。
+* `[sys:getTableTags]`：回同步表名與時間戳，建議須身分。
+* `[sys:polling]`：由 w-serv-broadcast 處理，會建立在線身分並取走該 `clientId` 佇列內之全部廣播(含同步表時間戳廣播與部署方 `broadcast()` 之內容)，建議須身分。
 
-伺服端選項 `sysFuncsPublic`(預設 `['[sys:getFuncList]']`)列出無須身分即可呼叫者：列於其中者，`getUserIdByToken` 得空字串亦放行；未列者須得非空字串 userId，否則回應 `{ state: 'error', msg: 'permission denied' }`(輪詢：前端見固定訊息 `[sys:polling] permission denied`)、不執行，並發出 error 事件(`{ msg: 'permission denied', func }`；輪詢為 w-serv-broadcast 之 `{ msg: '[sys:polling] permission denied', err: 原因 }`，反查拋錯時為 `{ msg: '[sys:polling] verifyPolling error', err: 原拒絕值 }`)。`getUserIdByToken` 拋錯或 reject 一律拒絕(含列於 `sysFuncsPublic` 者)。`sysFuncsPublic` 只放寬系統函數之空 userId，表操作與 `kpFunExt` 之空 userId 語意不變(交 `authorizeExec` 或函數自行把關)。
+伺服端選項 `sysFuncsPublic` 列出無須身分即可呼叫者。**預設三者皆公開**(`['[sys:getFuncList]', '[sys:polling]', '[sys:getTableTags]']`，相容既有行為：已發布之前端元件其輪詢不帶 token，預設收緊會使其即時同步失效、未登入頁不可用；框架預設多為放行，使用方須自行設定)；**建議使用端將前端改用本版元件(輪詢帶 `__sysToken__`)後，設為 `['[sys:getFuncList]']`**，使無身分者取不到同步表時間戳與廣播。列於 `sysFuncsPublic` 者，`getUserIdByToken` 得空字串亦放行；未列者須得非空字串 userId，否則回應 `{ state: 'error', msg: 'permission denied' }`(輪詢：前端見固定訊息 `[sys:polling] permission denied`)、不執行，並發出 error 事件(`{ msg: 'permission denied', func }`；輪詢為 w-serv-broadcast 之 `{ msg: '[sys:polling] permission denied', err: 原因 }`，反查拋錯時為 `{ msg: '[sys:polling] verifyPolling error', err: 原拒絕值 }`)。`getUserIdByToken` 拋錯或 reject 一律拒絕(含列於 `sysFuncsPublic` 者)。`sysFuncsPublic` 只放寬系統函數之空 userId，表操作與 `kpFunExt` 之空 userId 語意不變(交 `authorizeExec` 或函數自行把關)。
 
-輪詢之身分關卡以 w-serv-broadcast 1.1.11 起之 `verifyPolling` 注入：前端 `getToken` 之值於每輪輪詢放於 `__sysToken__`，伺服端以 `getUserIdByToken` 反查；**`clientId` 須歸屬該身分**——首次放行時綁定 `clientId` 與 userId，其後以不同身分輪詢同一 `clientId` 即拒；綁定於該 `clientId` 逾時離線(在線逾時固定 10 秒，期間無被放行之輪詢)或伺服端 `clearBroadcast` 時解除，故前端身分改變而 `clientId` 未變者，輪詢被拒絕至舊綁定逾時為止。「歸屬」之保證為綁定存活期間內 userId 一致、先到先綁，並非證明初次輪詢者原本擁有該 `clientId`；每輪輪詢恰呼叫 `getUserIdByToken` 一次(未帶 `__sysToken__` 之舊前端以空字串 token 反查)，拋錯或 reject 一律拒絕。
+輪詢之身分關卡以 w-serv-broadcast 1.1.11 起之 `verifyPolling` 注入：前端 `getToken` 之值於每輪輪詢放於 `__sysToken__`，伺服端以 `getUserIdByToken` 反查；**`clientId` 須歸屬該身分**——首次放行時綁定 `clientId` 與 userId，其後以不同身分輪詢同一 `clientId` 即拒；綁定於該 `clientId` 逾時離線(在線逾時固定 10 秒，期間無被放行之輪詢)或伺服端 `clearBroadcast` 時解除，故前端身分改變而 `clientId` 未變者，輪詢被拒絕至舊綁定逾時為止。「歸屬」之保證為綁定存活期間內 userId 一致、先到先綁，並非證明初次輪詢者原本擁有該 `clientId`；帶 `__sysToken__` 鍵之輪詢(含空字串)每輪恰呼叫 `getUserIdByToken` 一次，拋錯或 reject 一律拒絕(含公開者)；未帶該鍵之輪詢(已發布之舊前端元件，輸入恰為 `{ clientId }`)未出示 token，以空身分處理而不反查——公開(預設)時放行，嚴格設定時拒絕。
 
 ```alias
-// 例：getUserIdByToken 固定回空字串之部署(如 w-web-sso)，未登入前端須能呼叫三個系統函數
+// 例1：預設(不設 sysFuncsPublic)，相容已發布之前端元件；getUserIdByToken 固定回空字串之部署(如 w-web-sso)，未登入前端須能呼叫三個系統函數，維持預設即可
 new WServWebdataServer(inst, {
     getUserIdByToken: async () => '',
-    sysFuncsPublic: ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]'],
+    // ...
+})
+
+// 例2：前端皆已改用帶 token 之元件後，建議之嚴格設定(只公開函數名稱清單；無身分者之輪詢與時間戳被拒)
+new WServWebdataServer(inst, {
+    getUserIdByToken: async (token) => { /* 須完整驗證，見上方 Identity verification */ },
+    sysFuncsPublic: ['[sys:getFuncList]'],
     // ...
 })
 ```
 
 ## Upgrade Notes
-使用端須配合之處(預設收緊)：
-* **系統函數預設須身分**：預設只有 `[sys:getFuncList]` 無須身分；`[sys:getTableTags]`、`[sys:polling]` 須 `getUserIdByToken` 得非空字串，否則 `permission denied`。
-* **`getUserIdByToken` 固定回空字串，或使用預設 `async()=>''` 者須設定 `sysFuncsPublic`**，例如 `['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']`(w-web-sso 須公開 `[sys:polling]`、`[sys:getTableTags]`)；否則前端因輪詢被拒絕而無法綁定 `$fapi`，伺服端會見到 error 事件(`func` 為 `[sys:polling]` 或 `msg` 為 `[sys:polling] permission denied`)。
-* **前端輪詢亦帶 token**：`getToken` 於輪詢亦被呼叫(約每 2 秒一次，每輪重新取得)；伺服端每輪輪詢多一次 `getUserIdByToken`(快取與撤銷延遲之取捨由使用方決定，本套件不快取)。`[sys:polling]` 非公開時，未帶 token 之舊前端被拒絕(空身分)，需更新前端；既有分頁於伺服端升級後失去推播，重新整理即恢復。
+使用端須配合之處：
+* **新選項 `sysFuncsPublic`，預設三者皆公開(與升級前行為相同，既有部署不必改設定)**：已發布之前端元件其輪詢不帶 token，預設收緊會使其即時同步失效、未登入頁(如 w-web-sso 登入頁)不可用；框架預設多為放行，使用方須自行設定。與舊前端元件(輪詢輸入恰為 `{ clientId }`)組合時，綁定、同步、輪詢皆正常，該輪詢不反查。
+* **建議**：使用端將前端改用本版元件(輪詢帶 `__sysToken__`)的同一版本中，將伺服端設為 `sysFuncsPublic: ['[sys:getFuncList]']`，使無身分者取不到同步表時間戳與廣播；此嚴格設定下，`[sys:getTableTags]`、`[sys:polling]` 須 `getUserIdByToken` 得非空字串，否則 `permission denied`，且未帶 token 之舊前端元件被拒絕(空身分)。
+* **未登入須能進登入頁者(如 w-web-sso)**：維持預設，或顯式列出 `['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']`；若採嚴格設定，前端會因輪詢被拒絕而無法綁定 `$fapi`，伺服端會見到 error 事件(`func` 為 `[sys:getTableTags]`，或 `msg` 為 `[sys:polling] permission denied`)。
+* **前端輪詢亦帶 token**：`getToken` 於輪詢亦被呼叫(約每 2 秒一次，每輪重新取得)；伺服端對帶 token 之輪詢每輪多一次 `getUserIdByToken`(快取與撤銷延遲之取捨由使用方決定，本套件不快取)。
 * **相依 w-serv-broadcast 升為 `^1.1.11`**：輪詢由其 `verifyPolling` 與前端 `getToken` 鉤子驗證，資料通道對運作中之輪詢只略過；`execute` 監聽器仍為廣播與資料通道各 1 個。
 * **`getUserIdByToken` 即驗證身分之步驟**：須完整驗證(token 有效、本系統使用者存在且啟用、部署方授權)，不可只解碼或只查 id；拒絕以 reject 表達。
 * **輪詢之 `clientId` 歸屬**：不同身分輪詢同一 `clientId` 被拒絕；前端登出再以他人登入時，若 `clientId` 未變(通訊物件上自訂 `clientId` 或未重建前端)，輪詢被拒絕至舊綁定逾時(約 10 秒)，重建前端(新 `clientId`)則無此延遲。
@@ -492,14 +499,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.15/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.16/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.15/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.16/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

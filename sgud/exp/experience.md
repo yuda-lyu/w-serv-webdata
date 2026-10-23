@@ -244,3 +244,8 @@
 - 事實(外審 sol,2026-10-24,12 條):屬實並改碼 2 條(sysFuncsPublic 須先取快照再檢查——自訂迭代器使索引檢查與展開不同〔#4〕;clientLeave 監聽須在 try 內註冊,註冊失敗時由 catch 停止已建構之廣播〔#6〕)、改設計 1 條(輪詢「無 token 鍵不反查」之例外與「反查 reject 一律拒絕」不一致,改為無鍵以空字串反查,每輪恰 1 次〔#3〕)、補測試 6 條(預設 getUserIdByToken 實際呼叫三系統函數〔#7〕、同一他人身分連續被拒不得誤刪原綁定〔#8〕、falsy 拒絕值〔#9〕、sysFuncsPublic 8 個子集〔#10〕、任意字串 clientId 與大小寫〔#12〕、非字串 token〔#1〕)、修既有測試 1 條(#11,見下)、文件限定 1 條(歸屬為先到先綁〔#5〕)、實測屬實並記為已知限制 1 條(#2,離線後至佇列被修剪前〔≤1 秒〕他人可重新綁定並取得離線者遺留之廣播,見 L22 ③,根治在 w-serv-broadcast).
 - 做法(#11 的教訓):以「第 N 次 getToken 呼叫」製造時序的既有測試(綁定前廣播),下層新增呼叫 getToken 之處(輪詢每輪)後會**默默失去原本要製造的情境而仍綠**;凡以呼叫次數計時序之測試,下層行為變動後須以變異(拿掉被守護之閘門)確認仍會紅.
 
+### E43 預設相容、嚴格設定由使用端顯式選擇(2026-10-24,webdata-run02,主控改裁 Q1②)
+
+- 事實:①已發布之 w-web-perm/api/task/sso 前端建置檔用的是舊前端元件,其輪詢輸入恰為 `{ clientId }`(不帶 `__sysToken__`);預設收緊(只公開 `[sys:getFuncList]`)會使其即時同步失效、sso 登入頁不可用,故預設改回三者皆公開(`['[sys:getFuncList]','[sys:polling]','[sys:getTableTags]']`),嚴格設定由使用端顯式 `['[sys:getFuncList]']`(建議於其前端改用帶 token 之元件的同一版本設定).②相容的關鍵不只預設值:perm/api/task 之 `getUserIdByToken` 對空 token fail-closed 地 reject,若輪詢「未帶鍵」亦以空字串反查,舊前端輪詢仍會被拒——故 R17 ② 恢復「無鍵不反查、以空身分處理」(webdata-run01 外審 #3 曾改為無鍵亦反查,因此取代);帶鍵者仍每輪恰反查 1 次且 reject 一律拒絕,無鍵不構成繞過(無身分＝與反查得空字串同,放行與否只看 sysFuncsPublic).③「舊前端元件」之測試夾具:官方前端於其通訊物件之 `execute` 剝除輪詢輸入之 `__sysToken__`(線上輸入與舊元件相同);另以 `git archive 3259a8d src`(run01 前)取得真實舊 `WServWebdataClient`,對最終碼伺服端真 HTTP 實跑(perm 預設、sso 預設、嚴格)作一次性驗證.④clientId 歸屬(R17 ③)在預設(公開)下仍作用:w-serv-hapi 之 `api-sync-authorize` 以「測試中途變更 token 使身分由 admin 變空」模擬無權限,同一 clientId 的輪詢因歸屬被拒,預設下仍紅——須改以授權函數(旗標)模擬,屬 hapi 測試設計而非設定,見修正報告.
+- 做法:預設值變更後,所有依賴「預設＝嚴格」的既有新測試要逐一改為顯式嚴格設定(輪詢被拒只發一則 error、匿名收不到廣播等),並新增預設相容測試;變異須含「預設改回只公開 getFuncList」「預設缺 polling」「預設缺 getTableTags」「無鍵一律拒絕」「無鍵亦反查」.
+

@@ -9,7 +9,7 @@ import haskey from 'wsemi/src/haskey.mjs'
  * 輪詢之輸入為{ clientId, __sysToken__ }(前端opt.getToken之值放於固定鍵__sysToken__), 不是資料通道之{ __sysInputArgs__, __sysToken__ }, 由w-serv-broadcast於資料通道之前處理,
  * 故身分關卡不在資料通道(Exec)的execFun內, 而經鉤子注入; execFun對[sys:polling]只略過(不回應), 見Exec
  *
- * 關卡依序: ①以getUserIdByToken(token)反查userId(即驗證身分之步驟), 每輪恰1次(未帶token鍵者以空字串token反查), 拋錯或reject一律拒絕(含公開者); ②userId為空字串者, 須[sys:polling]列於sysFuncsPublic方放行;
+ * 關卡依序: ①帶token鍵者以getUserIdByToken(token)反查userId(即驗證身分之步驟), 每輪恰1次, 拋錯或reject一律拒絕(含公開者); 未帶token鍵者(已發布之舊前端元件)未出示token, 以空身分處理而不反查; ②userId為空字串者, 須[sys:polling]列於sysFuncsPublic(預設即列入)方放行;
  * ③clientId須歸屬該身分: 首次放行時綁定clientId與userId, 其後以不同userId輪詢同一clientId即拒(clientId由前端自訂, 否則知道他人clientId者可取走其廣播)
  * 「歸屬」之保證為綁定存活期間內userId一致, 先到先綁: 並非證明初次輪詢者原本擁有該clientId(連線識別由伺服端產生並綁定已驗證身分者才有此保證, 本套件沿用前端自訂clientId之既有協定)
  *
@@ -35,12 +35,15 @@ function genPollingGate({ getUserIdByToken, isPublic }) {
         //clientId
         let clientId = input.clientId
 
-        //userId, 每輪恰反查1次: 未帶__sysToken__鍵者(舊前端)與非字串者視為空字串token(同資料通道之cstr), 不另設不反查之例外, 使「反查拋錯或reject一律拒絕」對公開與否、有無鍵皆成立
+        //userId, 帶__sysToken__鍵者(含空字串; 非字串以cstr轉換, 同資料通道)反查恰1次, 拋錯或reject一律拒絕(含公開者)
+        //未帶該鍵者為已發布之舊前端元件(輪詢輸入恰為{ clientId }): 未出示任何token, 以空身分處理而不反查(公開時放行, 否則拒絕); 預設公開輪詢下須如此, 否則getUserIdByToken對空token拒絕(fail-closed)之部署會使舊前端輪詢失敗
         //拋錯或reject不在此攔截, 由w-serv-broadcast視為拒絕並發出error事件(內容含原拒絕值)
-        let token = haskey(input, '__sysToken__') ? cstr(input.__sysToken__) : ''
-        let userId = await getUserIdByToken(token)
-        if (!isestr(userId)) {
-            userId = ''
+        let userId = ''
+        if (haskey(input, '__sysToken__')) {
+            userId = await getUserIdByToken(cstr(input.__sysToken__))
+            if (!isestr(userId)) {
+                userId = ''
+            }
         }
 
         //check, 反查期間已停止者不綁定(w-serv-broadcast於停止後亦不處理其結果)

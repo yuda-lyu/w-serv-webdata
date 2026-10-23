@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkFind">checkFind</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkFind">checkFind</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#genPollingGate">genPollingGate</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
     
 </nav>
 
@@ -73,14 +73,16 @@ let isGiven = (v) => {
  *
  * 設定錯誤(instWConverClient未給、非事件物件(無emit、on，或無removeListener與off)或無execute函數，getServerMethods、recvData非函數，或getToken與各回調函數有給但非函數)於建構任何元件之前拋錯；執行環境須內建AbortController(停止時中止在途請求所需)，缺者於設定檢查之後、建構任何元件之前拋'AbortController is not available'。連線後先取得可呼叫函數清單並綁定，綁定完成前收到之同步廣播一律略過，綁定後即以當下全部資料表時間戳同步，不會遺漏。某表取資料失敗(例如表操作select被拒絕、傳輸失敗，或前端缺該表之表操作)時不呼叫recvData、不推進該表時間戳，前端既有資料維持不變，並發出error事件(內容為{msg,err,tableName,timeTag}，err為原拒絕值)，之後再收到同一時間戳(例如任一同步表變更之推播)時重抓。各回調函數拋錯時改發出error事件，不中斷同步。
  *
- * 回傳之事件物件即傳入之通訊物件，其上之error事件另含w-serv-broadcast之輪詢失敗({msg:'[sys:polling] error',err}，例如伺服端已停止廣播或通訊服務)與通訊物件自身之錯誤(例如WConverhpClient每次嘗試失敗之訊息)。
+ * 身分驗證責任：本套件不驗證token，只依opt.getToken於每個請求(含輪詢)帶使用方提供之token；驗證一律由伺服端使用方注入之函數負責(getUserIdByToken反查執行身分，即驗證身分，須完整驗證，不可只解碼或只查id)，前端不可視為已驗證。
+ *
+ * 回傳之事件物件即傳入之通訊物件，其上之error事件另含w-serv-broadcast之輪詢失敗({msg:'[sys:polling] error',err}，例如伺服端已停止廣播或通訊服務，或輪詢被伺服端以'[sys:polling] permission denied'拒絕)與通訊物件自身之錯誤(例如WConverhpClient每次嘗試失敗之訊息)。
  *
  * 停止時呼叫clearBroadcast與clearSync(兩者皆須呼叫，皆可重複呼叫)。任一者被呼叫後，本套件即移除其掛於通訊物件之監聽，不再呼叫getServerMethods、recvData與getRefreshState等回調函數，不再發出本套件之error事件，亦不再送出本套件之請求(取得函數清單、時間戳與同步表資料，含停止時尚在等待getToken者)；停止時已交給通訊物件之本套件請求一併中止(經通訊物件execute之opt.signal)，通訊物件不再為其重試、不再發出其各次嘗試失敗之error，亦不再為其呼叫通訊物件之getToken；中止前已發出之error不收回，伺服端已開始之處理照常完成而其結果忽略。通訊物件之execute不支援opt.signal者(例如w-converhp 2.1.8之前之WConverhpClient)無法中止，停止前已交給它之請求於其重試期間仍會發出各次嘗試失敗之error，於停止後才回到之結果一律忽略。停止前已被呼叫之回調函數於停止後才拋錯者改以console.error輸出。w-serv-broadcast之事件(openOnce、broadcast與輪詢之error等)於clearBroadcast後、w-sync-webdata之事件於clearSync後才停止，故只呼叫其一時，另一下層依其自身之規則繼續(例如只呼叫clearBroadcast時，停止時在途之同步表資料請求被中止(通訊物件不支援opt.signal者為其於停止後失敗時)，由w-sync-webdata以其拒絕值為err發出帶表名之error，中止者之拒絕值為'stopped by clearBroadcast or clearSync'(執行環境不支援abort(reason)者為name為AbortError之錯誤)；於停止後才派發之取資料因無監聽者而由其結束並發出error)。兩者皆呼叫後可於同一通訊物件重建；只呼叫其一即重建時，未停止之下層仍屬舊實體而與新實體並存。中止只及於本套件自身之請求：同一通訊物件上w-serv-broadcast之輪詢依其自身之停止規則，使用端自行呼叫之函數(getServerMethods所提供者，其仍會呼叫getToken)不受停止影響，照常完成或依通訊物件之重試失敗。getServerMethods所提供之物件，本套件同步時亦由之取用表操作select；使用端替換其函數者，該表之同步請求不再視為本套件之請求。
  *
  * @class
  * @param {Object} instWConverClient 輸入通訊服務實體物件，須為具emit、on、execute與removeListener或off函數之eventemitter3事件物件(例如WConverhpClient所建立者)，未給、非事件物件(無emit、on，或無removeListener與off)或無execute函數時拋錯
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=>''
+ * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=>''。其回傳值放於每個請求(含w-serv-broadcast之輪詢，由其opt.getToken於每輪輪詢前呼叫，故輪詢亦會呼叫本函數)之固定鍵__sysToken__，供伺服端opt.getUserIdByToken驗證身分(此即驗證身分之步驟，須完整驗證，見WServWebdataServer)；伺服端未將[sys:polling]列於sysFuncsPublic(嚴格設定，伺服端預設則三者皆公開)時，輪詢須帶可反查出非空userId之token，否則被拒絕(固定訊息'[sys:polling] permission denied')而不連線，error事件為{ msg: '[sys:polling] error', err }；使用本版元件(輪詢帶token)者，建議伺服端設為只公開['[sys:getFuncList]']。token隨請求明文送出，傳輸安全由使用端與通訊層負責
  * @param {Function} opt.getServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將依函數名之路徑放入物件當中(例如'tabA.select'放入為obj.tabA.select)，並通過回調函數提供該物件，必填，非函數時拋錯
  * @param {Function} opt.recvData 輸入取得變更表資料的回調函數，必填，非函數時拋錯
  * @param {Function} [opt.getRefreshState=null] 輸入取得資料表時間戳是否需更新之回調函數，有給但非函數時拋錯，預設null
@@ -311,8 +313,11 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     //擴充同步資料功能
     instWConverClient = new WSyncWebdataClient(instWConverClient)
 
-    //擴充廣播功能
-    instWConverClient = new WServBroadcastClient(instWConverClient)
+    //擴充廣播功能, getToken交給w-serv-broadcast前端(1.1.11起opt.getToken), 使輪詢亦帶token(固定鍵__sysToken__), 供伺服端opt.verifyPolling驗證身分(見WServWebdataServer);
+    //輪詢每輪重新呼叫getToken(與停止之關係: 輪詢依w-serv-broadcast之生命週期, 見clearBroadcast, 只呼叫clearSync時輪詢續行而仍帶token)
+    instWConverClient = new WServBroadcastClient(instWConverClient, {
+        getToken,
+    })
 
     //on, 註冊本套件於通訊物件之監聽並記錄, 停止時移除(掛的人負責移除): 下層皆允許停止後於同一事件物件重建, 舊實體之監聽若留著會先於新實體處理同一事件
     let hs = []
@@ -595,7 +600,7 @@ export default WServWebdataClient
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 20 2026 05:06:27 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 24 2026 03:21:54 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

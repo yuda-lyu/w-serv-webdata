@@ -169,10 +169,11 @@ function parseOpt(opt = {}) {
     //kpFunSys, 本套件內部提供之系統函數(例如[sys:getTableTags]), 與kpFunExt分開傳入, 不受kpFunExt之命名限制
     let kpFunSys = get(opt, 'kpFunSys', null)
 
-    //sysFuncsPublic, 無須身分(getUserIdByToken得空字串)即可呼叫之系統函數, 未列者須getUserIdByToken得非空字串; 有給須為陣列且元素須為系統函數名, 否則拋錯(不可靜默忽略而使部署方以為已公開或已收緊), 預設只公開函數名稱清單
+    //sysFuncsPublic, 無須身分(getUserIdByToken得空字串)即可呼叫之系統函數, 未列者須getUserIdByToken得非空字串; 有給須為陣列且元素須為系統函數名, 否則拋錯(不可靜默忽略而使部署方以為已公開或已收緊)
+    //預設三者皆公開(相容既有行為: 已發布之前端元件輪詢不帶token, 預設收緊會使其同步失效; 跨套件原則: 框架預設多為放行, 使用方須自行設定), 建議使用端於前端改用帶token之元件後設為只公開['[sys:getFuncList]']
     let sysFuncsPublic = get(opt, 'sysFuncsPublic', null)
     if (!isGiven(sysFuncsPublic)) {
-        sysFuncsPublic = ['[sys:getFuncList]']
+        sysFuncsPublic = ['[sys:getFuncList]', '[sys:polling]', '[sys:getTableTags]']
     }
     else if (!isarr(sysFuncsPublic)) {
         throw new Error('invalid opt.sysFuncsPublic')

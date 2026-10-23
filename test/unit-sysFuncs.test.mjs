@@ -9,7 +9,7 @@ import genPollingGate from '../src/genPollingGate.mjs'
 
 //以evem建構(不開網路), 模擬w-converhp派發execute事件, 驗證系統函數([sys:getFuncList]、[sys:getTableTags]、[sys:polling])之身分關卡:
 //  依據: 使用者身分驗證原則(C:\opensrcOper\dspec\使用者身分驗證原則.md)第二節7「系統函數:只回公開資訊者(函數名稱清單)可公開, 會回資料或改變狀態者須身分」與第二節2「getUserIdByToken即驗證身分之步驟」;
-//  主控裁定Q1(預設只公開[sys:getFuncList])、Q2(輪詢經w-serv-broadcast 1.1.11之verifyPolling注入)、Q3(因無身分被拒時發error事件);任務修正輪範圍2、3
+//  主控裁定Q1(②: 預設三者皆公開以相容已發布之前端元件〔輪詢不帶token〕, 嚴格設定為顯式只公開[sys:getFuncList]; 2026-10-24 webdata-run01-receipt)、Q2(輪詢經w-serv-broadcast 1.1.11之verifyPolling注入)、Q3(因無身分被拒時發error事件);任務修正輪範圍2、3
 //  規則帳本: R16(系統函數之身分關卡與sysFuncsPublic)、R17(輪詢之鉤子注入、略過與clientId歸屬)
 describe('unit-sysFuncs', function() {
 
@@ -171,9 +171,10 @@ describe('unit-sysFuncs', function() {
 
     //sysFuncsPublic設定: pub為各系統函數是否公開(依設定內容人工寫出, 不由程式推導)
     let configs = [
-        { name: '未給(預設)', opt: undefined, pub: { '[sys:getFuncList]': true, '[sys:getTableTags]': false, '[sys:polling]': false } },
-        { name: 'null', opt: null, pub: { '[sys:getFuncList]': true, '[sys:getTableTags]': false, '[sys:polling]': false } },
+        { name: '未給(預設: 三者皆公開)', opt: undefined, pub: { '[sys:getFuncList]': true, '[sys:getTableTags]': true, '[sys:polling]': true } },
+        { name: 'null(同未給)', opt: null, pub: { '[sys:getFuncList]': true, '[sys:getTableTags]': true, '[sys:polling]': true } },
         { name: '空陣列', opt: [], pub: { '[sys:getFuncList]': false, '[sys:getTableTags]': false, '[sys:polling]': false } },
+        { name: '只含getFuncList(建議之嚴格設定)', opt: ['[sys:getFuncList]'], pub: { '[sys:getFuncList]': true, '[sys:getTableTags]': false, '[sys:polling]': false } },
         { name: '只含getTableTags', opt: ['[sys:getTableTags]'], pub: { '[sys:getFuncList]': false, '[sys:getTableTags]': true, '[sys:polling]': false } },
         { name: '只含polling', opt: ['[sys:polling]'], pub: { '[sys:getFuncList]': false, '[sys:getTableTags]': false, '[sys:polling]': true } },
         { name: '含getFuncList與getTableTags', opt: ['[sys:getFuncList]', '[sys:getTableTags]'], pub: { '[sys:getFuncList]': true, '[sys:getTableTags]': true, '[sys:polling]': false } },
@@ -226,9 +227,21 @@ describe('unit-sysFuncs', function() {
             }
         })
 
-        //裁示Q1: 預設值逐項釘住(與上列矩陣互為印證)
-        it('預設只公開[sys:getFuncList]: 空身分取得函數清單, 但getTableTags被拒絕且不執行', async function() {
+        //裁示Q1②: 預設三者皆公開(相容已發布之前端元件), 逐項釘住(與上列矩陣互為印證)
+        it('預設(未給)三者皆公開: 空身分亦可取得函數清單與時間戳', async function() {
             let { inst, errs, nTags } = mk()
+            let r1 = await exec(inst, '[sys:getFuncList]', [], '')
+            assert.strict.deepEqual(r1, { state: 'success', msg: ['tabA.select', 'who'] })
+            let r2 = await exec(inst, '[sys:getTableTags]', [], '')
+            assert.strict.deepEqual(r2, { state: 'success', msg: { mode: 'syncKpTable', data: {} } })
+            assert.strict.equal(nTags.n, 1)
+            assert.strict.deepEqual(errs, [])
+            assert.strict.deepEqual(await poll(inst, 'c1', ''), { ok: true, v: [] }, '空token之輪詢')
+        })
+
+        //裁示Q1②+原則§二7: 建議之嚴格設定(只公開函數清單): 空身分取得函數清單, 但getTableTags被拒絕且不執行
+        it('嚴格設定只公開[sys:getFuncList]: 空身分取得函數清單, 但getTableTags被拒絕且不執行', async function() {
+            let { inst, errs, nTags } = mk({ sysFuncsPublic: ['[sys:getFuncList]'] })
             let r1 = await exec(inst, '[sys:getFuncList]', [], '')
             assert.strict.deepEqual(r1, { state: 'success', msg: ['tabA.select', 'who'] })
             let r2 = await exec(inst, '[sys:getTableTags]', [], '')
@@ -319,19 +332,57 @@ describe('unit-sysFuncs', function() {
             assert.strict.deepEqual(r, { state: 'success', msg: ['tabA.select', 'who'] })
         })
 
-        //裁示Q1: 未注入getUserIdByToken(預設async()=>'', 無身分)時, 預設只公開函數清單; 以sysFuncsPublic列出者方可匿名(sso型)
-        it('未給或null之getUserIdByToken(預設無身分): 預設只公開[sys:getFuncList], 列出者放行', async function() {
+        //裁示Q1②: 未注入getUserIdByToken(預設async()=>'', 無身分)且未設sysFuncsPublic(sso型相容): 三者皆可匿名; 嚴格設定(只公開函數清單)時另兩者被拒
+        it('未給或null之getUserIdByToken(預設無身分): 預設三者皆可匿名, 嚴格設定時只剩[sys:getFuncList]', async function() {
             for (let v of [undefined, null]) {
-                let { inst, errs } = mk({ getUserIdByToken: v })
+                let a = mk({ getUserIdByToken: v })
+                assert.strict.equal((await exec(a.inst, '[sys:getFuncList]', [], 'tokU1')).state, 'success', '函數清單')
+                assert.strict.equal((await exec(a.inst, '[sys:getTableTags]', [], 'tokU1')).state, 'success', '預設可匿名取時間戳')
+                assert.strict.deepEqual(await poll(a.inst, 'c1', 'tokU1'), { ok: true, v: [] }, '預設可匿名輪詢')
+                assert.strict.deepEqual(a.errs, [])
+
+                let { inst, errs } = mk({ getUserIdByToken: v, sysFuncsPublic: ['[sys:getFuncList]'] })
                 assert.strict.equal((await exec(inst, '[sys:getFuncList]', [], 'tokU1')).state, 'success', '函數清單')
                 assert.strict.deepEqual(await exec(inst, '[sys:getTableTags]', [], 'tokU1'), { state: 'error', msg: 'permission denied' }, '即使帶token, 預設反查恆得空字串')
                 assert.strict.deepEqual(await poll(inst, 'c1', 'tokU1'), { ok: false, err: '[sys:polling] permission denied' })
                 assert.strict.deepEqual(errs.map((e) => e.msg), ['permission denied', '[sys:polling] permission denied'])
-
-                let o = mk({ getUserIdByToken: v, sysFuncsPublic: sysAll })
-                assert.strict.equal((await exec(o.inst, '[sys:getTableTags]', [], 'tokU1')).state, 'success')
-                assert.strict.deepEqual(await poll(o.inst, 'c1', 'tokU1'), { ok: true, v: [] })
             }
+        })
+
+        //裁示Q1②+範圍2: 已發布之舊前端元件之輪詢輸入恰為{ clientId }(不帶__sysToken__); 預設下可綁定、輪詢、收廣播, 且不因getUserIdByToken對空token拒絕(fail-closed之部署)而失敗; 該輪詢不反查
+        it('預設下舊前端元件(輪詢不帶__sysToken__)可輪詢並收廣播, 不反查', async function() {
+            let { inst, calls, errs } = mk({
+                getUserIdByToken: (token) => {
+                    calls.push(token)
+                    if (token === '') {
+                        return Promise.reject('errUserIdMissing') //fail-closed: 對空token拒絕(perm、api、task型)
+                    }
+                    return 'u1'
+                },
+            })
+            assert.strict.deepEqual(await poll(inst, 'old1', undefined), { ok: true, v: [] }, '首輪')
+            inst.broadcast({ n: 1 })
+            assert.strict.deepEqual(await poll(inst, 'old1', undefined), { ok: true, v: [{ mode: 'broadcast', data: { n: 1 } }] }, '收廣播')
+            assert.strict.deepEqual(calls, [], '舊前端輪詢未出示token, 不反查')
+            assert.strict.deepEqual(errs, [])
+            //其他函數照常: 舊前端之函數清單、時間戳、函數呼叫皆帶本體token
+            assert.strict.equal((await exec(inst, '[sys:getFuncList]', [], 'tokOk')).state, 'success')
+            assert.strict.equal((await exec(inst, '[sys:getTableTags]', [], 'tokOk')).state, 'success')
+            //帶鍵之輪詢(新前端元件)對空token仍依反查結果拒絕(fail-closed), 不因公開而例外
+            assert.strict.deepEqual(await poll(inst, 'new1', ''), { ok: false, err: '[sys:polling] permission denied' })
+            assert.strict.deepEqual(errs, [{ msg: '[sys:polling] verifyPolling error', err: 'errUserIdMissing' }])
+        })
+
+        //裁示Q1②+範圍2: 嚴格設定(只公開函數清單)下, 無身分之輪詢(含舊前端元件不帶token者)與時間戳被拒, 帶有效token之新前端元件照常
+        it('嚴格設定下舊前端元件(無身分)之輪詢被拒, 帶有效token之輪詢放行', async function() {
+            let { inst, errs, nTags } = mk({ sysFuncsPublic: ['[sys:getFuncList]'] })
+            assert.strict.deepEqual(await poll(inst, 'old1', undefined), { ok: false, err: '[sys:polling] permission denied' })
+            assert.strict.deepEqual(errs, [{ msg: '[sys:polling] permission denied', err: 'empty userId' }])
+            assert.strict.deepEqual(await poll(inst, 'old1', ''), { ok: false, err: '[sys:polling] permission denied' })
+            assert.strict.deepEqual(await exec(inst, '[sys:getTableTags]', [], ''), { state: 'error', msg: 'permission denied' })
+            assert.strict.equal(nTags.n, 0)
+            assert.strict.deepEqual(await poll(inst, 'new1', 'tokU1'), { ok: true, v: [] })
+            assert.strict.equal((await exec(inst, '[sys:getTableTags]', [], 'tokU1')).state, 'success')
         })
 
         //原則§二2: 反查之拒絕值為falsy(undefined、null、false、0、空字串)時亦為拒絕, 不得被當成匿名成功(各系統函數、輪詢; 公開者亦然; reject與同步拋錯皆然)
@@ -369,8 +420,8 @@ describe('unit-sysFuncs', function() {
 
         //Q2(2c)+原則§二2: 輪詢經verifyPolling反查身分; 空身分依sysFuncsPublic是否含[sys:polling]; reject一律拒絕
         it('[sys:polling] × token狀態(含未帶token鍵) × sysFuncsPublic設定', async function() {
-            //未帶__sysToken__鍵(舊前端): 與非字串token同, 以空字串token反查1次(不設不反查之例外, 使反查reject一律拒絕對有無鍵皆成立)
-            let states = [...tokenStates, { name: '未帶__sysToken__鍵(舊前端)', token: undefined, lookupToken: '', lookups: 1, userId: '' }]
+            //未帶__sysToken__鍵(已發布之舊前端元件, 輪詢輸入恰為{ clientId }): 未出示token, 以空身分處理而不反查(公開時放行, 否則拒絕); 帶鍵者(含空字串、非字串)每輪恰反查1次且reject一律拒絕
+            let states = [...tokenStates, { name: '未帶__sysToken__鍵(舊前端)', token: undefined, lookups: 0, userId: '' }]
             for (let cfg of configs) {
                 let { inst, calls, errs, enters } = mk(cfg.opt === undefined ? {} : { sysFuncsPublic: cfg.opt })
                 let pub = cfg.pub['[sys:polling]']
@@ -383,7 +434,7 @@ describe('unit-sysFuncs', function() {
                     errs.length = 0
                     enters.length = 0
                     let r = await poll(inst, clientId, st.token)
-                    assert.strict.deepEqual(calls, [lookupOf(st)], `${label}: 每輪恰反查1次且為該token`)
+                    assert.strict.deepEqual(calls, st.lookups === 1 ? [lookupOf(st)] : [], `${label}: 帶鍵者每輪恰反查1次且為該token, 未帶鍵者不反查`)
                     if (st.rejected !== undefined) {
                         assert.strict.deepEqual(r, { ok: false, err: '[sys:polling] permission denied' }, label)
                         assert.strict.deepEqual(errs, [{ msg: '[sys:polling] verifyPolling error', err: st.rejected }], `${label}: error事件`)
@@ -416,7 +467,7 @@ describe('unit-sysFuncs', function() {
 
         //execFun略過輪詢: 被拒絕時只發一則error事件(execFun若回傳被拒絕之pm, execute監聽器之catch會多發一則)
         it('輪詢被拒絕時只發一則error事件, 且回覆為固定訊息', async function() {
-            let { inst, errs } = mk()
+            let { inst, errs } = mk({ sysFuncsPublic: ['[sys:getFuncList]'] }) //嚴格設定: 空身分之輪詢被拒
             let r = await poll(inst, 'c1', '')
             assert.strict.deepEqual(r, { ok: false, err: '[sys:polling] permission denied' })
             assert.strict.equal(errs.length, 1)
@@ -430,8 +481,8 @@ describe('unit-sysFuncs', function() {
         })
 
         //原則§二7: 輪詢會建立在線身分並取走廣播, 匿名者(未公開時)收不到廣播, 有身分者收得到
-        it('匿名者收不到部署方之廣播, 有身分者收得到', async function() {
-            let { inst } = mk()
+        it('嚴格設定下匿名者收不到部署方之廣播, 有身分者收得到', async function() {
+            let { inst } = mk({ sysFuncsPublic: ['[sys:getFuncList]'] })
             assert.strict.deepEqual(await poll(inst, 'cA', 'tokU1'), { ok: true, v: [] })
             inst.broadcast('secret')
             assert.strict.deepEqual(await poll(inst, 'cX', ''), { ok: false, err: '[sys:polling] permission denied' })

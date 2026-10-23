@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkFind">checkFind</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="WServWebdataClient.html">WServWebdataClient</a></li><li><a href="WServWebdataServer.html">WServWebdataServer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#bindFuncByPath">bindFuncByPath</a></li><li><a href="global.html#checkFind">checkFind</a></li><li><a href="global.html#checkOpt">checkOpt</a></li><li><a href="global.html#findFuncPathConflict">findFuncPathConflict</a></li><li><a href="global.html#genPollingGate">genPollingGate</a></li><li><a href="global.html#getFuncByPath">getFuncByPath</a></li><li><a href="global.html#getFuncPath">getFuncPath</a></li><li><a href="global.html#isBindableFuncPath">isBindableFuncPath</a></li><li><a href="global.html#parseOpt">parseOpt</a></li><li><a href="global.html#removeListeners">removeListeners</a></li></ul>
     
 </nav>
 
@@ -986,6 +986,245 @@ console.log(r)
 
     
 
+    <h4 class="name" id="genPollingGate"><span class="type-signature"></span>genPollingGate<span class="signature">(opt)</span><span class="type-signature"> &rarr; {Object}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>產生輪詢([sys:polling])之身分關卡, 供注入w-serv-broadcast(1.1.11起)之opt.verifyPolling, 使輪詢與其他函數一樣先驗證身分</p>
+<p>輪詢之輸入為{ clientId, <strong>sysToken</strong> }(前端opt.getToken之值放於固定鍵__sysToken__), 不是資料通道之{ <strong>sysInputArgs</strong>, <strong>sysToken</strong> }, 由w-serv-broadcast於資料通道之前處理,
+故身分關卡不在資料通道(Exec)的execFun內, 而經鉤子注入; execFun對[sys:polling]只略過(不回應), 見Exec</p>
+<p>關卡依序: ①帶token鍵者以getUserIdByToken(token)反查userId(即驗證身分之步驟), 每輪恰1次, 拋錯或reject一律拒絕(含公開者); 未帶token鍵者(已發布之舊前端元件)未出示token, 以空身分處理而不反查; ②userId為空字串者, 須[sys:polling]列於sysFuncsPublic(預設即列入)方放行;
+③clientId須歸屬該身分: 首次放行時綁定clientId與userId, 其後以不同userId輪詢同一clientId即拒(clientId由前端自訂, 否則知道他人clientId者可取走其廣播)
+「歸屬」之保證為綁定存活期間內userId一致, 先到先綁: 並非證明初次輪詢者原本擁有該clientId(連線識別由伺服端產生並綁定已驗證身分者才有此保證, 本套件沿用前端自訂clientId之既有協定)</p>
+<p>綁定之生命週期: 首次放行時建立; 該clientId逾時離線(w-serv-broadcast在線逾時固定10秒, 期間無任何一次被放行之輪詢, 發出clientLeave)時解除(release), 此後可由不同身分重新綁定;
+伺服端clearBroadcast時全部解除(stop)並不再綁定; 被拒絕之輪詢不建立、不刷新綁定(亦不刷新在線身分), 故身分改變(例如登出再以他人登入而前端clientId未變)者須待舊綁定逾時, 期間輪詢被拒絕</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="genPollingGate.mjs.html">genPollingGate.mjs</a>, <a href="genPollingGate.mjs.html#line24">line 24</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>opt</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入設定物件</p>
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>getUserIdByToken</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入以token反查userId之函數(sync或async皆可), 回傳非字串視為空字串, 拋錯或reject時拒絕</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>isPublic</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"><p>輸入是否公開<a href="%E5%8D%B3sysFuncsPublic%E5%90%AB%E4%B9%8B">sys:polling</a>, 公開時反查得空字串(或未帶token)亦放行</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳物件: verifyPolling(輪詢驗證鉤子, 嚴格true為放行, 拒絕時回傳描述字串供w-serv-broadcast發出error事件, 前端只見其固定訊息)、release(clientId)(解除綁定)、stop(停止)、isStopped(是否已停止)</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Object</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id="getFuncByPath"><span class="type-signature"></span>getFuncByPath<span class="signature">(root, name)</span><span class="type-signature"> &rarr; {*}</span></h4>
 
     
@@ -1500,7 +1739,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line32">line 32</a>
+        <a href="WServWebdataServer.mjs.html">WServWebdataServer.mjs</a>, <a href="WServWebdataServer.mjs.html#line34">line 34</a>
     </li></ul></dd>
     
 
@@ -1678,7 +1917,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="WServWebdataServerExec.mjs.html">WServWebdataServerExec.mjs</a>, <a href="WServWebdataServerExec.mjs.html#line80">line 80</a>
+        <a href="WServWebdataServerExec.mjs.html">WServWebdataServerExec.mjs</a>, <a href="WServWebdataServerExec.mjs.html#line84">line 84</a>
     </li></ul></dd>
     
 
@@ -1991,7 +2230,7 @@ console.log(r)
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Oct 20 2026 05:06:27 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 24 2026 03:21:54 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

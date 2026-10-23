@@ -35,7 +35,7 @@ let isGiven = (v) => {
  * @class
  * @param {Object} instWConverClient 輸入通訊服務實體物件，須為具emit、on、execute與removeListener或off函數之eventemitter3事件物件(例如WConverhpClient所建立者)，未給、非事件物件(無emit、on，或無removeListener與off)或無execute函數時拋錯
  * @param {Object} [opt={}] 輸入設定物件，預設{}
- * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=>''。其回傳值放於每個請求(含w-serv-broadcast之輪詢，由其opt.getToken於每輪輪詢前呼叫，故輪詢亦會呼叫本函數)之固定鍵__sysToken__，供伺服端opt.getUserIdByToken驗證身分(此即驗證身分之步驟，須完整驗證，見WServWebdataServer)；伺服端未將[sys:polling]列於sysFuncsPublic時，輪詢須帶可反查出非空userId之token，否則被拒絕(固定訊息'[sys:polling] permission denied')而不連線，error事件為{ msg: '[sys:polling] error', err }。token隨請求明文送出，傳輸安全由使用端與通訊層負責
+ * @param {Function} [opt.getToken=()=>''] 輸入取得使用者token的回調函數，可使用sync或async函數，有給但非函數時拋錯，預設()=>''。其回傳值放於每個請求(含w-serv-broadcast之輪詢，由其opt.getToken於每輪輪詢前呼叫，故輪詢亦會呼叫本函數)之固定鍵__sysToken__，供伺服端opt.getUserIdByToken驗證身分(此即驗證身分之步驟，須完整驗證，見WServWebdataServer)；伺服端未將[sys:polling]列於sysFuncsPublic(嚴格設定，伺服端預設則三者皆公開)時，輪詢須帶可反查出非空userId之token，否則被拒絕(固定訊息'[sys:polling] permission denied')而不連線，error事件為{ msg: '[sys:polling] error', err }；使用本版元件(輪詢帶token)者，建議伺服端設為只公開['[sys:getFuncList]']。token隨請求明文送出，傳輸安全由使用端與通訊層負責
  * @param {Function} opt.getServerMethods 輸入提供操作物件的回調函數，前後端通訊先取得可呼叫函數清單，映射完之後，後端函數都將依函數名之路徑放入物件當中(例如'tabA.select'放入為obj.tabA.select)，並通過回調函數提供該物件，必填，非函數時拋錯
  * @param {Function} opt.recvData 輸入取得變更表資料的回調函數，必填，非函數時拋錯
  * @param {Function} [opt.getRefreshState=null] 輸入取得資料表時間戳是否需更新之回調函數，有給但非函數時拋錯，預設null

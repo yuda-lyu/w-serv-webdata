@@ -106,6 +106,20 @@
 ### R11 測試配置
 
 - 規則:檔名前綴 `unit-`/`api-`;`npm test` 為 mocha --parallel;伺服器埠固定(api-servdata 9000、api-authorizeExec 8301、api-clientStop 9001、api-checkFind 9002,新增者另取 ≥8000 之固定埠,由主控登記避免與他套件衝突;8300–8399 為 w-converhp 測試之區段,新增者不取,本套件 8301 為既有);前端時序測試以記憶體假通訊層相連,不開埠;假通訊層兩種並存且只定義一次(`test/tools/clientHarness.mjs`):`linkCtl` 只取 func、忽略 execute 之第 4 參數,代表不支援 opt.signal 之通訊物件,為停止閘門(R14)之觀察者,既有〈停止〉各條一律用之;`linkSig` 依 w-converhp 2.1.8 之契約處理 `opt.signal`(呼叫時已中止者以 `signal.reason` 拒絕且不記入 sent;在途時中止者立即以 reason 拒絕),中止之新行為用之——不可把 `linkCtl` 整體改為依 signal,否則 `:313` 等閘門之變異存活(2026-10-13 獨立審查之變異實測);測試輔助(`run`、`extraHooks` 等)一律取自同檔,不在測試檔內另寫近似實作;暫存落 `test/_tmp/<案名>/`(含 WConverhpServer 之 `pathUploadTemp`),after 刪除;以 evem 建構之實體與前端於 after `clearBroadcast()`(前端時序測試另 `clearSync()`).缺陷重現測試須於舊碼紅(以逾時競賽避免懸置),行為鎖定測試須於舊碼綠.需量測「停止後行程自然結束」者以子行程執行前端(伺服端在測試行程,其延遲計時器不影響量測),輔助檔放 `test/tools/`(不帶 `.test.`).
+- **埠表**(本套件測試用固定埠之登記;新增者續取下一號並登記於此,避開 8300–8399 與他套件):
+
+| 埠 | 測試檔 | 用途 |
+|---|---|---|
+| 8301 | `api-authorizeExec` | 授權與拒絕語意 |
+| 9000 | `api-servdata` | 範例回歸 |
+| 9001 | `api-clientStop` | 前端停止(前端於子行程) |
+| 9002 | `api-checkFind` | find 白名單 |
+| 9003 | `api-sysFuncs` | perm 型,嚴格設定(只公開 `[sys:getFuncList]`) |
+| 9004 | `api-sysFuncs` | sso 型,顯式列出三者 |
+| 9005 | `api-sysFuncs` | sso 型,未設 `sysFuncsPublic`(預設;新、舊前端元件) |
+| 9006 | `api-sysFuncs` | sso 型,嚴格設定(前端不綁定) |
+| 9007 | `api-sysFuncs` | perm 型,未設 `sysFuncsPublic`(預設;`getUserIdByToken` 對空 token 拒絕;新、舊前端元件) |
+
 - 站點:`test/unit-*.test.mjs`、`test/api-authorizeExec.test.mjs`、`test/api-clientStop.test.mjs`(已套);`test/api-servdata.test.mjs` 與 `srv.mjs` 寫 repo 根之 `db.json`、`tableTags.json`、`./uploadTemp`(未套,既有).
 
 ### R12 前端之設定檢查與同步時序
@@ -160,25 +174,25 @@
 
 ### R16 系統函數之身分關卡(sysFuncsPublic)
 
-- 依據:跨套件原則 `C:\opensrcOper\dspec\使用者身分驗證原則.md` §二2(getUserIdByToken 即驗證身分之步驟)、§二7(系統函數:只回公開資訊者可公開,會回資料或改變狀態者須身分);使用者 2026-10-23 裁示(函數名稱清單可公開,其餘框架函數應驗身分者一律 token);主控裁定 Q1(預設只公開 `[sys:getFuncList]`)、Q3(因無身分被拒時發 error 事件);審計 `C:\opensrcOper\dnow\20261023213314\agent-out\webdata-inv01-審計報告.md`.
+- 依據:跨套件原則 `C:\opensrcOper\dspec\使用者身分驗證原則.md` §二2(getUserIdByToken 即驗證身分之步驟)、§二7(系統函數:只回公開資訊者可公開,會回資料或改變狀態者須身分);使用者 2026-10-23 裁示(函數名稱清單可公開,其餘框架函數應驗身分者一律 token);主控裁定 Q1(webdata-run01 原採①預設只公開 `[sys:getFuncList]`;**2026-10-24 改裁②:預設三者皆公開、嚴格設定由使用端顯式 `['[sys:getFuncList]']`**,理由:已發布之 w-web-perm/api/task/sso 前端建置檔用舊前端元件〔輪詢不帶 token〕,預設收緊會使其即時同步失效、sso 登入頁不可用;跨套件原則:框架預設多為放行,使用方須自行設定;見 decisions.tsv `webdata-run01-receipt`)、Q3(因無身分被拒時發 error 事件);審計 `C:\opensrcOper\dnow\20261023213314\agent-out\webdata-inv01-審計報告.md`.
 - 規則:
   - ①系統函數全集 `sysFuncs = ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']`(Exec 模組常數;亦是 `sysFuncsPublic` 元素之合法集合,與 R5 ② 之保留前綴 `[sys:` 對應).
-  - ②`opt.sysFuncsPublic`(預設 `['[sys:getFuncList]']`):列於其中之系統函數,`getUserIdByToken` 得空字串亦放行;未列者須得非空字串 userId,否則回 `{state:'error', msg:'permission denied'}`(固定鍵、不回顯 token)、不執行,並發 error 事件 `{ msg:'permission denied', func }`(系統函數無使用端授權函數可記錄,error 事件為唯一觀察點).
+  - ②`opt.sysFuncsPublic`(**預設 `['[sys:getFuncList]', '[sys:polling]', '[sys:getTableTags]']`**,即升級前行為;建議使用端在前端改用帶 token 之元件後設為 `['[sys:getFuncList]']`):列於其中之系統函數,`getUserIdByToken` 得空字串亦放行;未列者須得非空字串 userId,否則回 `{state:'error', msg:'permission denied'}`(固定鍵、不回顯 token)、不執行,並發 error 事件 `{ msg:'permission denied', func }`(系統函數無使用端授權函數可記錄,error 事件為唯一觀察點).
   - ③反查拋錯或 reject 一律拒絕(含公開者與表操作、kpFunExt):拒絕值原樣成為回應之 msg,error 事件為原拒絕值(R7 不變).
   - ④`sysFuncsPublic` 只放寬系統函數之空 userId.**表操作與 kpFunExt 之空 userId 語意不變**(交 authorizeExec 或函數自行把關;sso 全部 kpFunExt 依賴此語意).
   - ⑤設定檢核同 R2:有給須為陣列,元素須為三個系統函數名之一,否則於建構任何元件之前拋 `invalid opt.sysFuncsPublic`／`invalid opt.sysFuncsPublic[<索引>]`;快照(建構後修改原陣列不生效);與 useDbOrm 無關(不列入「未指定 useDbOrm 卻給設定」之檢查).
   - ⑥協定鍵缺漏(無 `__sysToken__`/`__sysInputArgs__`)、參數非陣列於反查之前即拒絕(不變,B5).不存在之函數名亦先反查再判斷(不變).
 - 單一擁有者:Exec 之 `parseOpt`(檢核、預設與快照)與 execFun 之身分檢查(單點);WServWebdataServer 之 `parseOpt` 只讀取並轉交給 Exec 之 `parseOpt`.
 - 盤點:`git grep -n "sysFuncsPublic" -- src`;`git grep -n "sysFuncs\b" -- src/WServWebdataServerExec.mjs`.
-- 站點全集(系統函數 3 × 預設公開/須身分):`[sys:getFuncList]` 預設公開(已套;內容只含函數名稱,L2);`[sys:getTableTags]` 預設須身分(已套;回同步表名與時間戳);`[sys:polling]` 預設須身分(已套,經 R17 之鉤子).下游設定:w-web-sso(`getUserIdByToken` 固定回空字串、`useDbOrm:false`)須設 `sysFuncsPublic: ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']`(審計實測 sso 未登入前端依序呼叫此三者);w-web-perm/api/task(`getUserIdByToken` fail-closed、前端 `useWaitToken:true`)預設即可;w-serv-hapi 之測試伺服器用預設或回空字串之 `getUserIdByToken` 者須補設定(見修正報告).
-- 測試:`test/unit-sysFuncs.test.mjs`〈R16 系統函數之身分關卡〉12 條(矩陣:2 系統函數×9 token 狀態×10 設定〔sysFuncsPublic 之 8 個子集＋未給＋null〕);`test/unit-WServWebdataServer.test.mjs`〈設定錯誤…〉2 條(含自訂迭代器之快照順序);`test/api-sysFuncs.test.mjs`(perm 型、sso 型已設/未設).
+- 站點全集(系統函數 3 × 預設公開/建議須身分):`[sys:getFuncList]` 預設公開、建議亦公開(已套;內容只含函數名稱,L2);`[sys:getTableTags]` 預設公開(相容)、建議嚴格設定時須身分(回同步表名與時間戳);`[sys:polling]` 預設公開(相容)、建議嚴格設定時須身分(經 R17 之鉤子).下游設定:w-web-sso(`getUserIdByToken` 固定回空字串、`useDbOrm:false`,未登入前端依序呼叫此三者〔審計實測〕)維持預設或顯式列出三者,**不得**採嚴格設定;w-web-perm/api/task(`getUserIdByToken` fail-closed、前端 `useWaitToken:true`)於前端改用本版元件之同一版本設為嚴格設定(排入各自連動輪);w-serv-hapi 之測試伺服器因預設相容,未補任何設定即可(`unit-optDoc` 仍須其 JSDoc 補 `@param opt.sysFuncsPublic`,見修正報告).
+- 測試:`test/unit-sysFuncs.test.mjs`〈R16 系統函數之身分關卡〉15 條(矩陣:2 系統函數×9 token 狀態×11 設定〔sysFuncsPublic 之 8 個子集＋未給＋null＋重複〕;預設相容、嚴格設定、舊前端元件之相容);`test/unit-WServWebdataServer.test.mjs`〈設定錯誤…〉2 條(含自訂迭代器之快照順序);`test/api-sysFuncs.test.mjs`(perm 型嚴格/預設、sso 型三者/預設/嚴格,新舊前端元件).
 
 ### R17 輪詢([sys:polling])之身分關卡、略過與 clientId 歸屬
 
 - 依據:同 R16;主控裁定 Q2 採 2c(不取出 w-serv-broadcast 之監聽,改用其 1.1.11 起之正式鉤子 `verifyPolling` 與前端 `getToken`);L12(提供鉤子後其輪詢回覆為非同步,同一事件物件上同步回應輪詢之監聽會搶先結算).
 - 規則:
   - ①輪詢輸入為 `{ clientId, __sysToken__ }`(非資料通道之協定),由 w-serv-broadcast 在資料通道之前處理;本套件以 `opt.verifyPolling` 注入身分關卡(`src/genPollingGate.mjs`),execute 監聽器數量與順序不變(廣播先於 Exec).
-  - ②鉤子:每輪呼叫 `getUserIdByToken` 恰 1 次,token 為輸入 `__sysToken__` 之 `cstr` 值(**無鍵之舊前端與非字串 token 以空字串反查**,與資料通道同規則,不設「無鍵不反查」之例外,使「反查拋錯或 reject 一律拒絕」對公開與否、有無鍵皆成立;外審 sol #3);反查拋錯或 reject(含 falsy 值 undefined、null、false、0、空字串)→ 鉤子拋出(廣播以固定訊息 `[sys:polling] permission denied` 拒絕,error 事件為 `{ msg:'[sys:polling] verifyPolling error', err:<原拒絕值> }`);回傳非字串視為空字串;空字串且 `[sys:polling]` 未列於 sysFuncsPublic → 回 `'empty userId'`(拒絕);廣播要求嚴格 `true` 才放行,拒絕時回描述字串(`'empty userId'`、`'clientId belongs to another userId'`、`'stopped'`)供其 error 事件 `{ msg:'[sys:polling] permission denied', err }` 稽核,前端只見固定訊息.
+  - ②鉤子:**輸入有 `__sysToken__` 鍵者**(含空字串;非字串以 `cstr` 轉換,同資料通道)每輪呼叫 `getUserIdByToken` 恰 1 次;**無該鍵者〔已發布之舊前端元件,輪詢輸入恰為 `{ clientId }`〕未出示 token,以空身分處理而不反查**(公開時放行,嚴格設定時回 `'empty userId'`):webdata-run01 曾因外審 sol #3 改為「無鍵以空字串反查」,webdata-run02 因預設改為三者公開〔主控改裁 Q1②〕須相容舊前端——perm/api/task 之 `getUserIdByToken` 對空 token fail-closed 地 reject,若無鍵亦反查,舊前端輪詢會被拒而即時同步失效;無鍵不構成繞過(無鍵＝無身分＝與反查得空字串同,是否放行只看 `sysFuncsPublic`);反查拋錯或 reject(含 falsy 值 undefined、null、false、0、空字串)→ 鉤子拋出(廣播以固定訊息 `[sys:polling] permission denied` 拒絕,error 事件為 `{ msg:'[sys:polling] verifyPolling error', err:<原拒絕值> }`);回傳非字串視為空字串;空字串且 `[sys:polling]` 未列於 sysFuncsPublic → 回 `'empty userId'`(拒絕);廣播要求嚴格 `true` 才放行,拒絕時回描述字串(`'empty userId'`、`'clientId belongs to another userId'`、`'stopped'`)供其 error 事件 `{ msg:'[sys:polling] permission denied', err }` 稽核,前端只見固定訊息.
   - ③clientId 歸屬:首次放行時綁定 clientId→userId(公開時匿名者為空字串,匿名亦為一種身分),其後以不同 userId 輪詢同一 clientId 即拒.檢查與綁定在反查之 await 之後同步執行(並發時先完成者勝).保證範圍為**綁定存活期間內 userId 一致、先到先綁**,並非證明初次輪詢者原本擁有該 clientId(連線識別由伺服端產生並綁定已驗證身分者才有該保證,對標 Socket.IO、SignalR;本套件沿用前端自訂 clientId 之既有協定,外審 sol #5);clientId 為任意非空字串,大小寫視為不同,`__proto__`、`constructor`、含點或括號者皆為一般識別(綁定用 Map).
   - ④綁定之生命週期:放行時建立;該 clientId 逾時離線(w-serv-broadcast 在線逾時固定 10 秒內無被放行之輪詢,發出 `clientLeave`)時由本套件掛於事件物件之 clientLeave 監聽解除;`clearBroadcast` 時全部解除並不再綁定(反查期間停止者亦不綁定);被拒絕之輪詢不建立或刷新綁定與在線身分.前端身分改變而 clientId 未變者,輪詢被拒絕至舊綁定逾時(約 10 秒)(D4).
   - ⑤execFun 對 `[sys:polling]`:廣播運作中**只略過**(不回應,且不可回傳 pm:async 函數回傳 pm 會跟隨其狀態,廣播 `pm.reject` 時 execute 監聽器之 catch 會多發一則 error);廣播已停止(包裝後之 clearBroadcast 已呼叫)或未建構(單獨建構 Exec)回 `{state:'error', msg:'invalid token'}`,不反查(L16).
@@ -212,10 +226,10 @@
 | `test/unit-checkFind.test.mjs` | checkFind(純函數) | 19 | R15 S1、S2、S3(含 `$in` 元素總數合計上限)、S5、S6(requireKey) |
 | 同上 | 資料通道(evem,不開網路) | 14 | R15 S4～S8、R1(先驗後授權、既有拒絕語意不變) |
 | `test/api-checkFind.test.mjs` | (真 HTTP,埠 9002,真 w-orm-lowdb;自寫客戶端直送加官方客戶端 `$fapi`) | 14 | R15 S1～S8、D2、D3 |
-| `test/unit-sysFuncs.test.mjs` | R16 系統函數之身分關卡(evem,不開網路) | 12 | R16(含預設 getUserIdByToken、falsy 拒絕值) |
+| `test/unit-sysFuncs.test.mjs` | R16 系統函數之身分關卡(evem,不開網路) | 15 | R16(含預設三者公開、嚴格設定、預設 getUserIdByToken、舊前端元件相容、falsy 拒絕值) |
 | 同上 | R17 輪詢之身分關卡 | 7 | R17 ①②⑤、R16 |
 | 同上 | R17 輪詢之clientId歸屬 | 10 | R17 ③④(含 10 秒在線逾時回收、genPollingGate 單元、連續被拒、任意字串 clientId、非字串 clientId) |
-| `test/api-sysFuncs.test.mjs` | (真 HTTP,埠 9003 perm 型／9004 sso 型已設 sysFuncsPublic／9005 sso 型預設;埠待主控登記) | 9 | R16、R17(輪詢實際帶 token、持標頭 token 之匿名者與他人身分被拒、sso 型綁定與預設收緊) |
+| `test/api-sysFuncs.test.mjs` | (真 HTTP,埠 9003~9007,見 R11 埠表) | 14 | R16、R17(輪詢實際帶 token;嚴格設定下持標頭 token 之匿名者、他人身分與舊前端元件被拒;sso 型三者/預設可綁定、嚴格設定不綁定;perm 型預設下新、舊前端元件皆可綁定同步) |
 
 輔助(不帶 `.test.`):`test/tools/clientHarness.mjs`(前端測試共用之 `sleep`、`hookNames`、`extraHooks`、`zeros`、`genRun`、`linkCtl`、`linkSig`;2026-10-24 起 `genRun` 之 `nToken` 於通訊物件見 `[sys:polling]` 時扣回——w-serv-broadcast 1.1.11 前端輪詢每輪亦呼叫 getToken,`nToken` 只計本套件自身與使用端之請求,各〈停止〉測試之語意不變;`linkCtl` 另回傳 `inputs`〔與 `sent` 同序之輸入〕)、`test/tools/clientStopChild.mjs`(真 HTTP 停止測試之前端子行程).
 
@@ -231,6 +245,8 @@
 
 2026-10-24(webdata-run01,系統函數與輪詢之身分關卡,R16、R17,配合 w-serv-broadcast 1.1.11):`npm test` 198 passing、約 1m17s(基準 155〔換裝 1.1.11、src 未動時同為 155 綠〕;新增 unit-sysFuncs 29、api-sysFuncs 9、unit-WServWebdataServer 4、unit-WServWebdataClient 1 條,共 43;既有 155 條斷言不變,僅 `clientHarness` 之 `nToken` 於見輪詢時扣回〔11 條〈停止〉測試之語意不變〕,與「綁定完成前收到同步廣播」一條改以第 2 次 getToken 呼叫製造延遲〔輪詢已占第 1 次〕).分辨力:新增 43 條於修前之 src(`git archive HEAD src`,另放替身 `src/genPollingGate.mjs` 使測試可載入)紅 30 綠 13——紅者皆為新行為(系統函數須身分與預設、sysFuncsPublic 設定與檢核、輪詢身分關卡與歸屬、鉤子注入、execFun 略過、clearBroadcast 後 invalid token、真 HTTP 輪詢帶 token 與被拒、clientLeave 監聽移除),綠者皆為行為鎖定(表操作與 kpFunExt 空 userId 語意、反查 reject 不執行、協定鍵缺漏、不存在之函數、函數清單內容、clientEnter 之 data 不含 token、非字串 clientId、部署方 broadcast 由已驗證前端收到、標頭 token 錯誤由通訊層拒絕、其他系統函數於本體 token 無效時被拒、sso 型已設 sysFuncsPublic 可綁定、合法 sysFuncsPublic 可建構).變異 37 個(`tmp/webdata-run01/mut/runMut.mjs`,於 `./tmp` 副本施變異,每個變異先 `node --check`;已隨修正報告附件留存)存活 0:含任務指定之拿掉鉤子注入〔M01〕、拿掉 clientId 歸屬檢查〔M02〕、sysFuncsPublic 改全公開〔M03〕,及 execFun 不略過輪詢、空身分放行、公開時反查 reject 放行、falsy 拒絕值視為匿名、release/stop/快照/型別/元素檢查、預設值、前端不交 getToken、clientLeave 監聽於 try 外註冊、isBound 閘門等.外審 sol(gpt-6.1-sol max)12 條逐條核對:6 條補測試、2 條改碼、1 條改設計、1 條實測屬實並記 L22 ③、1 條文件限定、1 條修既有測試(詳修正報告〈外審評分表〉).w-serv-hapi 測試複本(src 與 test 複製自其 repo,node_modules/w-serv-webdata 換成本套件最終 src,hapi repo 未動):基準(HEAD src)111 綠;本套件最終 src 100 綠 11 紅〔api-client-stop 4、api-error-listener 1、api-options 3、api-sync-authorize 2、unit-optDoc 1〕;依修正報告〈w-serv-hapi 須補設定之測試〉補設定後 111 綠.
 
+2026-10-24(webdata-run02,預設改為三者皆公開〔主控改裁 Q1②〕、未帶鍵之舊前端元件相容,R16、R17 ②):`npm test` 206 passing、約 1m17s 測試時間(基準 198;unit-sysFuncs 29→32、api-sysFuncs 9→14;其餘不變).修前紅:對 webdata-run01 檢查點(HEAD,預設收緊)之 `src` 跑本輪新增/改寫之 15 條(unit-sysFuncs 9、api-sysFuncs 6)紅 8 綠 7——紅者為預設相容(矩陣、預設三者公開、未給 getUserIdByToken、舊前端元件〔unit 與 perm 預設、sso 預設〕、輪詢矩陣之無鍵不反查、嚴格設定下舊前端元件之拒絕原因為 `empty userId`),綠者皆為行為鎖定(顯式嚴格設定之既有拒絕語意).變異 40 個(M01~M40;含 M13「預設改回只公開 `[sys:getFuncList]`」、M39/M40「預設缺 polling/缺 getTableTags」、M16「無鍵亦反查」、M38「無鍵一律拒絕」)存活 0.真實舊前端元件(`git archive 3259a8d src` 之 `WServWebdataClient`,輪詢輸入恰為 `{clientId}`)對最終碼伺服端真 HTTP 實跑:perm 預設(getUserIdByToken 對空 token reject)可綁定、同步、收廣播,sso 預設可綁定並呼叫 getWebInfor,嚴格設定下被拒而不綁定.w-serv-hapi 測試複本(hapi repo 未動,未補任何設定):109 綠 2 紅〔`api-sync-authorize` 1:測試中途換 token 使身分改變,同一 clientId 輪詢因歸屬被拒;`unit-optDoc` 1:其 JSDoc 缺 `@param opt.sysFuncsPublic`〕,僅改此二處後 111 綠(見修正報告).
+
 ## 3. 設計要求(非問題、非限制)
 
 - D1 通訊內容須為可序列化之格式(JSON 可表達之值,以及 Uint8Array;經 w-converhp 以 wsemi obj2u8arr 傳輸),含各關卡之回傳值與拒絕值、前端傳入之參數.不支援之格式(例如循環參照、BigInt)本就不在設計範圍內,傳了前端必然失敗——w-converhp 回應 `'output can not be serialized'`,前端依其重試設定重送後仍失敗(實測重試 3 次、該次各關卡被執行 4 次),屬預期結果,不列為問題或限制(業主 2026-10-13 定性).
@@ -244,7 +260,7 @@
 
 - L1 布林授權只能放行或拒絕整次呼叫,無法逐筆過濾或限制欄位;同步表之 select 不帶參數,須對所有連線者放行,被拒絕之前端取不到該表資料且每次重抓皆發 error.(原載「前端 select 失敗時以空資料結束並記下時間戳,該表被清空,到下次資料變動前不重抓」,2026-10-13 配合 w-sync-webdata 1.1.7 改為 reject 後不成立,見 R12.)
 - L2 `[sys:getFuncList]` 列出全部函數名,不依授權過濾;預設即為公開(`sysFuncsPublic` 預設,R16;函數名稱清單可公開,使用者 2026-10-23 裁示,無 token 仍無法呼叫函數).
-- L3 時間戳廣播對所有通過輪詢身分關卡之連線(只含中繼資料,取資料仍經授權);預設須 `getUserIdByToken` 得非空 userId,`sysFuncsPublic` 含 `[sys:polling]` 者(如 sso)匿名亦可輪詢(R17;原對所有通過通訊層者).
+- L3 時間戳廣播對所有通過輪詢身分關卡之連線(只含中繼資料,取資料仍經授權);**預設(`sysFuncsPublic` 三者皆公開)匿名亦可輪詢並取得時間戳與部署方 `broadcast()` 內容**(相容既有行為,R17;與升級前同,通訊層 verifyConn 仍把關);採建議之嚴格設定 `['[sys:getFuncList]']` 者須 `getUserIdByToken` 得非空 userId 方可輪詢.
 - L4 授權與 operOrm 之執行非原子.
 - L5 authorizeExec、operOrm、kpFunExt 之拒絕不發 error 事件;使用端函數之 bug 只表現為前端收到錯誤字串.
 - L6 (已改列〈設計要求〉D1,2026-10-13).
@@ -290,13 +306,13 @@
   - 使用端須配合:w-web-perm/api/task 之資料通道只送無參數 `select()`、授權函數不讀 input,2026-10-17 讀其 repo 核對全數通過,不須改碼;未變:第 1 參數之後之參數仍丟棄(D3)、delAll 不給條件仍為全部(S6)、insert/save/del/mix 不檢(Q8 另案).
 - 使用端須配合(非缺陷):w-serv-hapi 已改為整包轉傳並同步建構(其工作區 `src/WServHapiServer.mjs:353-360`);w-web-perm/api/task 提供 authorizeExec;各使用端之 kpFunExt、表名經盤點不受新檢查影響.
 - 2026-10-24(webdata-run01,依 inv01 審計與主控裁定 Q1～Q3、使用者 2026-10-23 裁示;**對 `getUserIdByToken` 使用預設或固定回空字串者**):系統函數之身分關卡(R16、R17).
-  - B1 系統函數預設須身分:新選項 `sysFuncsPublic`(預設 `['[sys:getFuncList]']`);`[sys:getTableTags]`、`[sys:polling]` 於 `getUserIdByToken` 得空字串時回 `permission denied`(原放行).使用預設或固定回空字串之部署須設定:w-web-sso 須設 `['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']`;w-web-perm/api/task(`getUserIdByToken` fail-closed、前端 `useWaitToken:true`)不須設定.
-  - B2 `[sys:polling]` 經身分關卡:前端輪詢帶 `__sysToken__`(`getToken` 每輪輪詢前亦被呼叫);伺服端以 `getUserIdByToken` 反查,拒絕時前端只見固定訊息 `[sys:polling] permission denied`(原因經伺服端 error 事件);`sysFuncsPublic` 未含輪詢時,未帶 token 之舊前端被拒絕(既有分頁於伺服端升級後失去推播,重新整理即恢復).
+  - B1 新選項 `sysFuncsPublic`:列於其中之系統函數,`getUserIdByToken` 得空字串亦放行;未列者須得非空字串 userId,否則回 `permission denied`.**預設三者皆公開(2026-10-24 webdata-run02 起;webdata-run01 原預設只公開 `[sys:getFuncList]`,主控同日改裁 Q1②),即升級前行為,既有部署不必改設定**;建議使用端在前端改用帶 token 之元件後設為 `['[sys:getFuncList]']`(嚴格設定);w-web-sso 維持預設或顯式列出三者.
+  - B2 `[sys:polling]` 經身分關卡:前端輪詢帶 `__sysToken__`(`getToken` 每輪輪詢前亦被呼叫);伺服端對帶鍵者以 `getUserIdByToken` 反查,拒絕時前端只見固定訊息 `[sys:polling] permission denied`(原因經伺服端 error 事件);**未帶該鍵之已發布舊前端元件於預設(公開)下不反查而放行**,嚴格設定時被拒絕(既有分頁於伺服端升級並採嚴格設定後失去推播,重新整理並更新前端後恢復).
   - B3 輪詢 clientId 歸屬:同一 clientId 以不同身分輪詢被拒絕(原不檢查,可取走他人佇列之廣播並建立在線身分).
   - B4 新 error 事件:系統函數因無身分被拒為 `{ msg:'permission denied', func }`;輪詢被拒絕由 w-serv-broadcast 發 `{ msg:'[sys:polling] permission denied', err }`／`{ msg:'[sys:polling] verifyPolling error', err }`.
   - B5 相依 w-serv-broadcast 升至 `^1.1.11`(verifyPolling、getToken 鉤子).
   - B6 文件:`getUserIdByToken` 即驗證身分之步驟,須完整驗證(使用者存在、啟用、授權),不可只解碼或只查 id;JSDoc 與 README 加〈身分驗證責任〉、〈系統函數〉與 Upgrade Notes.
-  - 使用端須配合:w-web-sso 設 `sysFuncsPublic`;w-serv-hapi 之測試伺服器用預設或回空字串之 `getUserIdByToken` 者須補設定(清單見修正報告);w-serv-hapi 之 JSDoc 須補 `@param opt.sysFuncsPublic`(其 `unit-optDoc` 以本套件 JSDoc 對照,升相依後轉紅);升 w-serv-broadcast 下限.未變:表操作與 kpFunExt 之空 userId 語意、資料通道 find 白名單、execute 監聽器數量與順序.
+  - 使用端須配合:預設相容,**無須設定**(w-serv-hapi 之測試伺服器、w-web-sso 皆維持原樣);採嚴格設定者(各 w-web-* 於前端改用本版元件之同一版本)才須注意 sso 不可採;w-serv-hapi 之 JSDoc 須補 `@param opt.sysFuncsPublic`(其 `unit-optDoc` 以本套件 JSDoc 對照,升相依後轉紅);升 w-serv-broadcast 下限.未變:表操作與 kpFunExt 之空 userId 語意、資料通道 find 白名單、execute 監聽器數量與順序.
 
 ## 6. 對標摘要
 
