@@ -131,6 +131,38 @@ describe('unit-WServWebdataServer', function() {
             expectNoSideEffect({ fpTableTags, kpFunExt: { add: undefined } }, 'invalid opt.kpFunExt[add]')
         })
 
+        //R16: sysFuncsPublic有給卻無效者拋錯(不可靜默忽略而使部署方以為已公開或已收緊), 於建構任何元件之前; 與useDbOrm無關
+        it('sysFuncsPublic有給卻無效(非陣列、元素非三個系統函數名之一)', function() {
+            for (let v of ['[sys:getFuncList]', {}, 1, true, '']) {
+                expectNoSideEffect(base({ kpOrm: {}, sysFuncsPublic: v }), 'invalid opt.sysFuncsPublic')
+            }
+            for (let [v, i] of [[['x'], 0], [['[sys:getFuncList]', 'getFuncList'], 1], [[1], 0], [[null], 0], [[undefined], 0], [[['[sys:polling]']], 0], [['[sys:getTableTags] '], 0], [['[sys:getFuncList]', '[sys:polling]', ''], 2], [['__proto__'], 0]]) {
+                expectNoSideEffect(base({ kpOrm: {}, sysFuncsPublic: v }), `invalid opt.sysFuncsPublic[${i}]`)
+            }
+            expectNoSideEffect({ fpTableTags, useDbOrm: false, sysFuncsPublic: ['nothing'] }, 'invalid opt.sysFuncsPublic[0]')
+            expectNoSideEffect({ fpTableTags, sysFuncsPublic: 'x' }, 'invalid opt.sysFuncsPublic')
+
+            //自訂迭代器(外審sol #4): 展開(快照)與索引所見不同時, 檢查之值即使用之值, 仍於建構任何元件之前拋錯(原檢查索引、使用展開之值, 至Exec建構時才拋而已擴充事件物件)
+            let p = ['[sys:getFuncList]']
+            p[Symbol.iterator] = function* () {
+                yield 'x'
+            }
+            expectNoSideEffect(base({ kpOrm: {}, sysFuncsPublic: p }), 'invalid opt.sysFuncsPublic[0]')
+        })
+
+        //R16: 合法之sysFuncsPublic可建構(含未給、null、空陣列、重複、三者、useDbOrm未指定)
+        it('sysFuncsPublic合法之值可建構', function() {
+            let ok = [undefined, null, [], ['[sys:getFuncList]'], ['[sys:polling]', '[sys:polling]'], ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']]
+            for (let v of ok) {
+                let inst = evem()
+                insts.push(inst)
+                new WServWebdataServer(inst, { fpTableTags, sysFuncsPublic: v })
+                let inst2 = evem()
+                insts.push(inst2)
+                new WServWebdataServer(inst2, base({ kpOrm: {}, sysFuncsPublic: v }))
+            }
+        })
+
         //R37: 元素須為非空字串
         it('tableNamesExec、methodsExec、tableNamesSync之元素須為非空字串', function() {
             for (let v of [null, '', 1]) {
@@ -334,6 +366,45 @@ describe('unit-WServWebdataServer', function() {
             await sleep(300)
             assert.strict.deepEqual(inst.getTableTags(), {})
             assert.strict.equal(fs.readFileSync(fp, 'utf8'), 'PRE')
+        })
+
+        //R17+R13: 本套件掛於事件物件之clientLeave監聽(解除clientId之綁定)由clearBroadcast移除(掛的人負責移除), 可重複呼叫; 建構之執行期異常時亦移除
+        it('clearBroadcast時移除本套件掛於事件物件之clientLeave監聽, 建構之執行期異常時亦然', function() {
+            let inst = evem()
+            insts.push(inst)
+            let n0 = inst.listenerCount('clientLeave')
+            new WServWebdataServer(inst, base({ kpOrm: {} }))
+            assert.strict.equal(inst.listenerCount('clientLeave'), n0 + 1, '建構後掛1個')
+            inst.clearBroadcast()
+            assert.strict.equal(inst.listenerCount('clientLeave'), n0, '停止後移除')
+            inst.clearBroadcast()
+            assert.strict.equal(inst.listenerCount('clientLeave'), n0, '可重複呼叫')
+
+            let inst2 = evem()
+            insts.push(inst2)
+            assert.throws(() => {
+                new WServWebdataServer(inst2, base({ kpOrm: { tabA: mkOrm() }, tableNamesSync: ['tabA'], genTag: () => Date.now() }))
+            }, { message: 'invalid opt.genTag' })
+            assert.strict.equal(inst2.listenerCount('clientLeave'), 0, '建構之執行期異常時移除')
+        })
+
+        //R17 ⑦(外審sol #6): clientLeave監聽註冊拋錯時(以事件物件之on模擬), 已建構之廣播(execute監聽與計時器)經catch停止, 不殘留
+        it('clientLeave監聽註冊失敗時停止已建構之廣播(無殘留計時器與execute監聽)', function() {
+            let inst = evem()
+            insts.push(inst)
+            let on0 = inst.on
+            inst.on = function(name, ...args) {
+                if (name === 'clientLeave') {
+                    throw new Error('onLeaveBoom')
+                }
+                return on0.call(this, name, ...args)
+            }
+            let n0 = countTimeout()
+            assert.throws(() => {
+                new WServWebdataServer(inst, base({ kpOrm: {} }))
+            }, { message: 'onLeaveBoom' })
+            assert.strict.equal(inst.listenerCount('execute'), 0, '廣播之execute監聽已移除')
+            assert.strict.equal(countTimeout(), n0, '無殘留計時器')
         })
 
         //R46: 掛kpOrm監聽之後的步驟失敗亦須回滾(以事件物件之on於註冊changeTableTags時拋錯模擬), 且不寫時間戳檔

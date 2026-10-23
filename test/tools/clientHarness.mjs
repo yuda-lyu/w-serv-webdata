@@ -53,11 +53,20 @@ let genRun = (WServWebdataClient, cleans) => {
             ...opt,
         }
         //getToken亦記錄呼叫次數(nToken): 本套件於停止後不再呼叫使用端之函數, 停止後才開始之本套件請求連getToken亦不呼叫
+        //輪詢(w-serv-broadcast前端, 1.1.11起)於每輪輪詢前亦呼叫getToken以帶token(固定鍵__sysToken__), 其生命週期依w-serv-broadcast而非本套件之停止閘門,
+        //故於通訊物件見輪詢時扣回該次(getToken之呼叫緊接著execute, 兩者間無讓出事件迴圈之機會, 除非getToken本身為非同步等待), nToken只計本套件自身與使用端之請求, 各〈停止〉測試之斷言語意不變
         let getToken = kp.getToken
         log.nToken = 0
         kp.getToken = (...args) => {
             log.nToken++
             return getToken(...args)
+        }
+        let execute = cl.execute
+        cl.execute = function(func, ...rest) {
+            if (func === '[sys:polling]') {
+                log.nToken--
+            }
+            return execute.call(this, func, ...rest)
         }
         for (let k of hookNames) {
             let fn = kp[k]
@@ -108,14 +117,16 @@ let genReply = ({ funcs, tags, fail, poll }) => {
 //linkCtl, 可控之假後端(不支援opt.signal之通訊物件): sent記錄每次送出之函數名, delay為各函數之回應延遲(毫秒, 預設5), fail為各函數之傳輸失敗(其值為拒絕值, 模擬伺服器已停止), poll為每次輪詢之回應
 let linkCtl = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fail = {}, poll = () => [] } = {}) => {
     let sent = []
+    let inputs = [] //與sent同序, 每次送出之輸入(第2參數)
     let reply = genReply({ funcs, tags, fail, poll })
     let cl = evem()
-    cl.execute = async (func) => {
+    cl.execute = async (func, input) => {
         sent.push(func)
+        inputs.push(input)
         await sleep(delay[func] !== undefined ? delay[func] : 5)
         return reply(func)
     }
-    return { cl, sent }
+    return { cl, sent, inputs }
 }
 
 

@@ -3,7 +3,7 @@
   "version": "1.1.15",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
-    "w-serv-broadcast": "^1.1.10",
+    "w-serv-broadcast": "^1.1.11",
     "w-sync-webdata": "^1.1.8",
     "wsemi": "^1.9.21"
   },

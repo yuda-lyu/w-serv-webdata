@@ -179,8 +179,9 @@ describe('unit-WServWebdataClient', function() {
             let log = run(linkServer(srv), {
                 getToken: () => {
                     nTok++
-                    if (nTok === 1) {
-                        return sleep(3500).then(() => 'tok') //首次取函數清單變慢, 其間後端資料變更並經輪詢送達
+                    //w-serv-broadcast 1.1.11起輪詢每輪亦呼叫getToken: 第1次為首輪輪詢(約2秒時), 第2次才是其後的取函數清單
+                    if (nTok === 2) {
+                        return sleep(3500).then(() => 'tok') //取函數清單變慢, 其間後端資料變更並經第2輪輪詢送達(綁定前, 應被略過而於綁定後以時間戳同步)
                     }
                     return 'tok'
                 },
@@ -595,6 +596,53 @@ describe('unit-WServWebdataClient', function() {
             for (let err of log.rawErrors) {
                 assert.strict.deepEqual(err, { msg: '[sys:polling] error', err: { state: 'error', msg: 'invalid token' } })
             }
+        })
+
+    })
+
+    describe('輪詢帶token', function() {
+
+        //R17: 前端把getToken交w-serv-broadcast前端(1.1.11起opt.getToken), 輪詢輸入為{ clientId, __sysToken__ }(非資料通道之協定), 供伺服端opt.verifyPolling反查身分; 修前輪詢輸入恰為{ clientId }
+        it('輪詢輸入帶getToken之值(每輪重新取得, sync與async皆可, 非字串取空字串, 未給取空字串)', async function() {
+            this.timeout(20000)
+            let n = 0
+            let a = linkCtl() //sync, 每次呼叫回傳不同值
+            run(a.cl, { getToken: () => `tok${++n}` })
+            let b = linkCtl() //async
+            run(b.cl, { getToken: async () => 'tokAsync' })
+            let c = linkCtl() //非字串
+            run(c.cl, { getToken: () => undefined })
+            let d = linkCtl() //未給getToken(預設), 不經run(其會包裝getToken)
+            let cld = new WServWebdataClient(d.cl, { getServerMethods: () => {}, recvData: () => {} })
+            cleans.push(() => {
+                cld.clearBroadcast()
+                cld.clearSync()
+            })
+            await sleep(4600) //輪詢間隔2秒, 至少2輪
+
+            let polls = (x) => {
+                return x.inputs.filter((v, i) => x.sent[i] === '[sys:polling]')
+            }
+            let pa = polls(a)
+            assert.strict.ok(pa.length >= 2, `至少2輪輪詢: ${pa.length}`)
+            for (let v of pa) {
+                assert.strict.deepEqual(Object.keys(v).sort(), ['__sysToken__', 'clientId'], '輪詢輸入恰為clientId與__sysToken__')
+                assert.strict.ok(/^tok\d+$/.test(v.__sysToken__), v.__sysToken__)
+            }
+            assert.strict.ok(new Set(pa.map((v) => v.__sysToken__)).size === pa.length, '每輪重新取得')
+            assert.strict.equal(new Set(pa.map((v) => v.clientId)).size, 1, 'clientId不變')
+            assert.strict.ok(polls(b).length >= 2)
+            for (let v of polls(b)) {
+                assert.strict.equal(v.__sysToken__, 'tokAsync')
+            }
+            for (let v of polls(c)) {
+                assert.strict.equal(v.__sysToken__, '', '非字串取空字串')
+            }
+            assert.strict.ok(polls(c).length >= 2)
+            for (let v of polls(d)) {
+                assert.strict.equal(v.__sysToken__, '', '未給getToken取空字串')
+            }
+            assert.strict.ok(polls(d).length >= 2)
         })
 
     })

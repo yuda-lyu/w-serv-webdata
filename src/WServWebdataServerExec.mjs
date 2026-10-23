@@ -29,6 +29,10 @@ let isGiven = (v) => {
 let methodsFind = ['select', 'delAll']
 
 
+//sysFuncs, 系統函數全集, 名稱保留給本套件與w-serv-broadcast([sys:polling]), kpFunExt不得使用[sys:前綴; sysFuncsPublic之元素須為其一
+let sysFuncs = ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']
+
+
 //buildFuncs
 function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
     let funcs = {}
@@ -165,6 +169,21 @@ function parseOpt(opt = {}) {
     //kpFunSys, 本套件內部提供之系統函數(例如[sys:getTableTags]), 與kpFunExt分開傳入, 不受kpFunExt之命名限制
     let kpFunSys = get(opt, 'kpFunSys', null)
 
+    //sysFuncsPublic, 無須身分(getUserIdByToken得空字串)即可呼叫之系統函數, 未列者須getUserIdByToken得非空字串; 有給須為陣列且元素須為系統函數名, 否則拋錯(不可靜默忽略而使部署方以為已公開或已收緊), 預設只公開函數名稱清單
+    let sysFuncsPublic = get(opt, 'sysFuncsPublic', null)
+    if (!isGiven(sysFuncsPublic)) {
+        sysFuncsPublic = ['[sys:getFuncList]']
+    }
+    else if (!isarr(sysFuncsPublic)) {
+        throw new Error('invalid opt.sysFuncsPublic')
+    }
+    sysFuncsPublic = [...sysFuncsPublic] //快照, 避免建構期間外部修改; 先取快照再檢查, 檢查之值即使用之值(陣列自訂迭代器使展開與索引所見不同時, 不致檢查通過而使用另一份)
+    each(sysFuncsPublic, (v, i) => {
+        if (!sysFuncs.includes(v)) {
+            throw new Error(`invalid opt.sysFuncsPublic[${i}]`)
+        }
+    })
+
     //pathNames, 表操作之函數名
     let pathNames = []
     if (useDbOrm) {
@@ -226,6 +245,7 @@ function parseOpt(opt = {}) {
         authorizeExec,
         kpFunExt,
         kpFunSys,
+        sysFuncsPublic,
         pathNames,
     }
 }
@@ -239,7 +259,15 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
     }
 
     //parseOpt, 設定之檢查集中於此(單一擁有者), WServWebdataServer於建構任何元件之前亦先呼叫
-    let { getUserIdByToken, useDbOrm, operOrm, tableNames, methods, authorizeExec, kpFunExt, kpFunSys } = parseOpt(opt)
+    let { getUserIdByToken, useDbOrm, operOrm, tableNames, methods, authorizeExec, kpFunExt, kpFunSys, sysFuncsPublic } = parseOpt(opt)
+
+    //isSysPollingActive, 內部選項(由WServWebdataServer交入): [sys:polling]是否仍由w-serv-broadcast處理(其opt.verifyPolling已含身分關卡), 未給時視為否(此時輪詢回invalid token)
+    let isSysPollingActive = get(opt, 'isSysPollingActive', null)
+    if (!isfun(isSysPollingActive)) {
+        isSysPollingActive = () => {
+            return false
+        }
+    }
 
     //funcs
     let funcs = {}
@@ -268,6 +296,17 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         if (!isestr(func)) {
             pm.resolve({ state: 'error', msg: 'invalid func' })
             return pm //提前離開
+        }
+
+        //[sys:polling], 輸入為{ clientId, __sysToken__ }(非{ __sysInputArgs__, __sysToken__ }), 由w-serv-broadcast處理並經其opt.verifyPolling(身分關卡, 見genPollingGate)
+        //其回覆為非同步, 本函數若同步回應則先結算者勝出而輪詢每輪失敗, 故廣播仍運作時只略過(不回應, 且不可回傳pm: 其被w-serv-broadcast拒絕時會使下方execute監聽器之catch多發一則error事件)
+        //廣播已停止(clearBroadcast)或未建構時維持既有回應invalid token(rulebook L16), 不反查
+        if (func === '[sys:polling]') {
+            if (!isSysPollingActive()) {
+                pm.resolve({ state: 'error', msg: 'invalid token' })
+                return pm //提前離開
+            }
+            return //略過
         }
 
         //get token, 將內部token提出
@@ -311,6 +350,14 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
                 userId = ''
             }
 
+        }
+
+        //check, 系統函數須有身分(userId為非空字串), 除非列於sysFuncsPublic; 先於任何系統函數之處理, 回固定拒絕鍵(不回顯token)並發error事件(系統函數無使用端授權函數可記錄, error事件為唯一觀察點)
+        //表操作與kpFunExt之空userId語意不變(交authorizeExec或函數自行把關)
+        if (sysFuncs.includes(func) && !sysFuncsPublic.includes(func) && userId === '') {
+            pm.resolve({ state: 'error', msg: 'permission denied' }) //先回應再發事件
+            evEmit(instWConverServer, 'error', [{ msg: 'permission denied', func }])
+            return pm //提前離開
         }
 
         //getFuncList, 提供可用函數清單

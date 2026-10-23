@@ -13,6 +13,8 @@ import isfun from 'wsemi/src/isfun.mjs'
 import WSyncWebdataServer from 'w-sync-webdata/src/WSyncWebdataServer.mjs'
 import WServBroadcastServer from 'w-serv-broadcast/src/WServBroadcastServer.mjs'
 import pickTables from './pickTables.mjs'
+import removeListeners from './removeListeners.mjs'
+import genPollingGate from './genPollingGate.mjs'
 import WServWebdataServerSync, { checkOpt as checkSyncOpt } from './WServWebdataServerSync.mjs'
 import WServWebdataServerExec, { parseOpt as parseExecOpt } from './WServWebdataServerExec.mjs'
 
@@ -82,6 +84,9 @@ function parseOpt(opt = {}) {
     //kpFunExt, 容器與值之檢查由Exec之parseOpt擁有
     let kpFunExt = get(opt, 'kpFunExt', null)
 
+    //sysFuncsPublic, 容器與值之檢查由Exec之parseOpt擁有; 與useDbOrm無關(useDbOrm=false時亦有系統函數), 故不列入下方未指定useDbOrm之檢查
+    let sysFuncsPublic = get(opt, 'sysFuncsPublic', null)
+
     //check, 未指定useDbOrm(非布林)卻給了資料通道或資料同步之設定時拋錯, 否則該些設定會因useDbOrm預設false而靜默不生效
     if (!useDbOrmGiven) {
         let kpOptDbOrm = { operOrm, tableNamesExec, methodsExec, authorizeExec, kpOrm, tableNamesSync }
@@ -119,6 +124,7 @@ function parseOpt(opt = {}) {
         methods: methodsExec,
         authorizeExec,
         kpFunExt,
+        sysFuncsPublic,
     })
 
     //checkSyncOpt, 資料同步之設定, 回傳是否同步(kpOrm為空物件時不同步)
@@ -150,6 +156,7 @@ function parseOpt(opt = {}) {
             methods: oe.methods,
             authorizeExec: oe.authorizeExec,
             kpFunExt: oe.kpFunExt,
+            sysFuncsPublic: oe.sysFuncsPublic,
         },
     }
 }
@@ -158,18 +165,21 @@ function parseOpt(opt = {}) {
 /**
  * 伺服器端之資料控制與同步器
  *
+ * 身分驗證責任：本套件不驗證token，只於各關卡呼叫使用方注入之函數；未注入時之預設為放行或無身分(getUserIdByToken預設回空字串，sysFuncsPublic預設只公開函數名稱清單)。使用方須自行完整驗證——通訊層(例如w-converhp之verifyConn)驗連線之token(含本系統使用者存在、啟用、部署方授權)；getUserIdByToken反查執行身分，即驗證身分，須同等完整，不可只解碼或只查id；authorizeExec授權表操作(預設拒絕)；apis路由與kpFunExt各自把關，含函數層級之角色或成員檢查。詳見下方第6、11點與跨套件原則『使用者身分驗證原則』。
+ *
  * 資料通道(useDbOrm=true時開啟)開放給前端呼叫之函數有三類：表操作(由tableNamesExec與methodsExec組成，例如'tabA.select')、kpFunExt、系統函數。前端每次呼叫依序經過getUserIdByToken(取得userId)、authorizeExec(僅表操作)，再執行operOrm或kpFunExt之函數。授權與拒絕之規則如下：
  *
  * 1. 資料通道是資料表直接開放給前端之處，表操作之授權在此，由authorizeExec負責。採預設拒絕，回傳值須嚴格等於true才放行，回傳其他值(例如false、1、'true'、undefined)一律回應'permission denied'且不呼叫operOrm。operOrm可能亦被伺服端程式呼叫而分不出呼叫來源，故不負責授權。kpFunExt之函數不經authorizeExec，須各自把關。
  * 2. 各關卡(getUserIdByToken、authorizeExec、operOrm、kpFunExt之函數)拋錯或reject時，其值原樣成為前端收到之拒絕值，故欲回傳語系鍵須reject字串，Error物件經序列化後前端收到'Error: 訊息'字串。各關卡之回傳值與拒絕值須為可序列化之格式，此為設計要求，不支援之格式(例如循環參照、BigInt)本就不在設計範圍內，前端必然失敗。
- * 3. 僅getUserIdByToken之拒絕會發出error事件(其值可能為undefined或null)；authorizeExec、operOrm與kpFunExt之拒絕不發出error事件，需於伺服端紀錄者請於函數內自行處理。
+ * 3. getUserIdByToken之拒絕(其值可能為undefined或null)與系統函數因無身分被拒絕(內容為{ msg: 'permission denied', func }，見第11點)會發出error事件，輪詢([sys:polling])被拒絕時由w-serv-broadcast發出其error事件({ msg, err }，見第11點)；authorizeExec、operOrm與kpFunExt之拒絕不發出error事件，需於伺服端紀錄者請於函數內自行處理。
  * 4. authorizeExec只能放行或拒絕整次呼叫，無法逐筆過濾資料或限制欄位。同步資料時前端呼叫該表之表操作select且不帶參數，故tableNamesSync內之表須在tableNamesExec中、methodsExec須含'select'(kpFunExt提供之同名函數不算)，否則建構時拋錯；其select須對所有連線者放行，否則被拒絕之前端取不到該表資料，且每次重抓皆發出error事件。需逐筆控管可見範圍者請改用kpFunExt提供且不列入同步。
  * 5. authorizeExec收到之input與傳給operOrm者為同一物件，僅供判斷，不支援修改(select、delAll之input為經第10點白名單檢核之凍結複本，就地修改不生效：嚴格模式下拋TypeError，非嚴格模式靜默忽略；operOrm與w-serv-orm之addFunCheck、addFunPreProcessing收到之亦為此複本，需補條件請建新物件，例如{ ...input, ownerId: userId })。授權與operOrm之執行非原子操作。methodsExec含'mix'時，允許mix等同允許該表之新增、修改與刪除。
- * 6. getUserIdByToken須完整驗證token(不可只解碼)，其token取自請求內容，與通訊層(例如w-converhp之verifyConn)所驗證者為不同來源。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。
+ * 6. getUserIdByToken即驗證身分之步驟，須完整驗證(token有效、本系統使用者存在且啟用、部署方授權)，不可只解碼或只查id，與通訊層(例如w-converhp之verifyConn)所驗證者同等完整：其token取自請求內容(前端opt.getToken之值，放於固定鍵__sysToken__)，與通訊層驗證標頭之token為不同來源，兩個身分各自須經完整驗證；拒絕以reject(或拋錯)表達，取不到使用者時回傳空字串僅代表無身分(是否放行見第1、11點)。getUserIdByToken或authorizeExec不結束(promise不settle)時，該次請求將懸置。
  * 7. 函數名須能被前端綁定(前端依函數名之路徑綁定，解析同lodash之toPath，例如'tabA[select]'即['tabA','select'])：路徑不得為空、不得有空段、各段不得為'__proto__'、'constructor'、'prototype'；kpFunExt不得以'[sys:'開頭；kpFunExt之頂層名不得為表名(例如表名為'tabA'時，'tabA'、'tabA.count'、'tabA[select]'皆不可)；不同函數名(含表操作與kpFunExt)不得解析為同一路徑(例如'a.b'與'a["b"]')，亦不得互為前綴(例如'a'與'a.b')。違反者於建構時拋錯。
- * 8. 設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：instWConverServer非事件物件(無emit、on或off函數)；未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播(clearBroadcast)、釋放同步元件(clearSync)並移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充且仍有資料通道之execute監聽，不可再以同一事件物件重新建構。
+ * 8. 設定錯誤於建構任何元件之前拋錯，此時尚未擴充傳入之事件物件、未註冊任何監聽、未寫入時間戳檔、未呼叫使用端之genTag。設定錯誤包含：instWConverServer非事件物件(無emit、on或off函數)；未指定useDbOrm(非布林值)卻給了operOrm、tableNamesExec、methodsExec、authorizeExec、kpOrm或tableNamesSync；useDbOrm=true而operOrm、authorizeExec非函數，tableNamesExec非陣列，kpOrm非物件，methodsExec、tableNamesSync有給但非陣列，或tableNamesExec、methodsExec、tableNamesSync之元素非非空字串；同步之表不在kpOrm中或無法監聽change事件，或無表操作select；getUserIdByToken、genTag有給但非函數，fpTableTags有給但非非空字串，kpFunExt有給但非純物件或其值非函數，sysFuncsPublic有給但非陣列或其元素非三個系統函數名之一；以及違反第7點之函數名。執行期異常(例如使用端genTag拋錯或回傳非字串、kpOrm之on拋錯)會先停止廣播(clearBroadcast)、釋放同步元件(clearSync)並移除已掛於kpOrm之監聽，但傳入之事件物件已被擴充且仍有資料通道之execute監聽，不可再以同一事件物件重新建構。
  * 9. 停止服務時依序呼叫clearBroadcast(停止廣播：清除廣播之計時器與在線偵測並移除輪詢之監聽，對已進入之客戶端補發clientLeave與clientChange使進出成對後，不再派發廣播之事件)、clearSync(釋放資料同步)，再停止通訊服務(例如WConverhpServer之stop)。只呼叫clearBroadcast而未停止通訊服務時，前端之輪詢改由資料通道回應{state:'error',msg:'invalid token'}，前端每輪發出輪詢失敗之error事件({msg:'[sys:polling] error',err:{state:'error',msg:'invalid token'}})且收不到推播。clearSync會移除本套件掛於kpOrm之change監聽與掛於傳入事件物件之changeTableTags監聽、取消待推播之時間戳並將尚未落檔之時間戳寫入檔案，之後kpOrm之變更不再更新時間戳與推播，可重複呼叫。釋放後傳入之事件物件上仍有資料通道之execute監聽，不可再以同一事件物件重新建構。
  * 10. 表操作select、delAll之find(前端所送之第1個參數，即查詢條件)來自不可信之客戶端，於呼叫authorizeExec與operOrm之前先經固定之白名單檢核(不提供放寬之設定)：find須為未給或一般物件；各鍵須為識別字(Unicode字母、組合符號、數字、底線，非數字開頭，長度不超過128，至多64個鍵)，故以$開頭、含點號、為Object.prototype之成員名(例如__proto__、constructor、toString)、為'prototype'或'length'(暫行)之鍵皆不可；各值須為純量(字串不超過1024字元且不含NUL、有限數字、布林，不含null)，或恰含單鍵$in之物件(值為純量之陣列)，且整個find之$in元素總數(跨鍵合計，非逐鍵)至多1000個。因此null、陣列、字串、數字、布林、二進位等非條件物件，運算子(例如$or、$where、$regex、$gt)與巢狀物件一律拒絕；需要更豐富之查詢者請改用kpFunExt並自行把關，可引用checkFind(import checkFind from 'w-serv-webdata/src/checkFind.mjs'，回傳{ok,find|reason})檢核。不合者以字串'invalid find[原因碼]'拒絕(原因碼為notObject、badKey、badOperator、badValue、badIn、tooManyKeys、tooManyIn，不含前端所送之值)，不呼叫authorizeExec與operOrm，亦不發出error事件；先驗後授權，故authorizeExec只會見到白名單內之形狀。通過者以全新且凍結之複本取代，authorizeExec與operOrm收到同一份，授權所見即交給ORM者(ORM邊界以內)。檢核通過不代表後端安全：字串值之語意(例如大小寫、數字字串、陣列欄位之包含)由各ORM後端決定；另w-serv-orm之procOrm對字串型主鍵之id條件，會把有限數字(含$in之元素)轉為字串後才交後端，授權函數收到的仍是數字，故授權函數依id判斷時請以String()正規化後再比較。find檢核依方法名精確比對'select'與'delAll'(大小寫、空白皆視為不同名)，methodsExec若列入文件所列以外之方法名(例如w-orm-*另有之帶條件方法)，其input不經檢核，須由authorizeExec或自訂之operOrm把關，建議只列文件所列之方法。insert、save、del、mix之input不檢核形狀；select之find規則同delAll之條件：省略參數或傳{}(伺服端收到之find為undefined或{})回傳全部數據，非條件物件或白名單外運算子整批reject。經資料通道呼叫之delAll與後端(w-orm-*、w-serv-orm)語意一致，不另加通道專屬限制，以免用法歧異造成誤解：不給條件(前端省略參數或傳{}，即伺服端收到之find為undefined或{}；前端顯式傳入undefined經JSON成為null而被拒絕，見下述)與select同規則放行，其語意為刪除全部數據，不另行確認；delAll為破壞性操作，須審慎使用、非必要不用(非必要請勿將'delAll'列入methodsExec)，列入時請於authorizeExec限制可呼叫者；條件須符合w-orm系列白名單，傳非條件物件或白名單外運算子由ORM整批reject(本通道另以上述白名單限縮為等值純量與單鍵$in，未通過者以'invalid find[原因碼]'拒絕)。第1個參數之後之參數(例如order、limit)丟棄，不交給authorizeExec與operOrm。通訊內容經JSON序列化，值為undefined之物件鍵會消失(例如{ ownerId: undefined }伺服端只見{}，select會回全表、delAll會全刪)，顯式傳入undefined之find會成為null而被拒絕，前端勿傳undefined之條件值。另前端所送之參數(__sysInputArgs__)須為陣列(對所有函數)，否則回應{state:'error',msg:'invalid input'}。
+ * 11. 系統函數([sys:getFuncList]、[sys:getTableTags]、[sys:polling])依作用分類：只回公開資訊者(函數名稱清單[sys:getFuncList])可公開；會回資料或改變狀態者須身分——[sys:getTableTags]回同步表名與時間戳，[sys:polling]會建立在線身分並取走該clientId佇列內之全部廣播(含同步表時間戳廣播與部署方broadcast之內容)。故以opt.sysFuncsPublic(預設['[sys:getFuncList]'])列出無須身分即可呼叫者：列於其中者，getUserIdByToken得空字串亦放行；未列者須得非空字串userId，否則回應{state:'error',msg:'permission denied'}(固定鍵，不回顯token)，不執行並發出error事件{ msg: 'permission denied', func }；getUserIdByToken拋錯或reject一律拒絕(含列於sysFuncsPublic者，同其他函數，拒絕值原樣成為回應)；協定鍵缺漏(無__sysToken__、__sysInputArgs__)或參數非陣列者於反查之前即拒絕。sysFuncsPublic只放寬系統函數之空userId，表操作與kpFunExt之空userId語意不變(交authorizeExec或函數自行把關)。getUserIdByToken固定回空字串或沿用預設之部署(例如w-web-sso)須設定sysFuncsPublic，例如['[sys:getFuncList]','[sys:getTableTags]','[sys:polling]']，否則前端因輪詢被拒絕而永不綁定$fapi，伺服端見到error事件。輪詢由w-serv-broadcast處理(輸入為{ clientId, __sysToken__ }，非資料通道之協定)，本套件以其1.1.11起之opt.verifyPolling注入身分關卡，資料通道對運作中之輪詢只略過(不回應)：關卡以getUserIdByToken(__sysToken__)反查(前端opt.getToken之值，每輪重新取得)，得空字串者須[sys:polling]列於sysFuncsPublic方放行，每輪恰反查1次(未帶__sysToken__鍵之舊前端與非字串token以空字串反查，與其他函數同規則；反查拋錯或reject一律拒絕，不因公開或未帶鍵而例外)；拒絕時前端只見固定訊息'[sys:polling] permission denied'，不建立或刷新在線身分與佇列、不取走廣播，原因經w-serv-broadcast之error事件供稽核——{ msg: '[sys:polling] permission denied', err: 原因字串('empty userId'、'clientId belongs to another userId')}，反查拋錯或reject時為{ msg: '[sys:polling] verifyPolling error', err: 原拒絕值 }，每被拒絕之輪詢各發一則。clientId須歸屬該身分：首次放行輪詢時綁定clientId與userId(公開時匿名者為空字串)，其後以不同userId輪詢同一clientId即拒(clientId由前端自訂，不綁定則知道他人clientId者可取走其廣播)；歸屬之保證為綁定存活期間內userId一致、先到先綁，並非證明初次輪詢者原本擁有該clientId(需要連線所有權時須由伺服端產生並綁定已驗證身分之連線識別)；綁定之生命週期同在線身分——該clientId逾時離線(w-serv-broadcast在線逾時固定10秒，期間無被放行之輪詢，發出clientLeave)時解除，clearBroadcast時全部解除；被拒絕之輪詢不刷新在線身分，故前端身分改變(例如登出再以他人登入而clientId未變)者，輪詢被拒絕至舊綁定逾時(約10秒)為止，重建前端(新clientId)則無此延遲。clearBroadcast後輪詢維持由資料通道回應invalid token(第9點)。輪詢每輪多一次getUserIdByToken(連同前端getToken)，驗證成本約為通訊層之兩倍，快取與撤銷延遲之取捨由使用方自行決定，本套件不快取。
  *
  * @class
  * @param {Object} instWConverServer 輸入通訊服務實體物件，須為具emit、on、off函數之eventemitter3事件物件(例如WConverhpServer或wsemi之evem所建立者)，有給物件而缺emit、on或off函數時拋錯；未給或非有效物件時改用wsemi之evem建立之事件物件(不連線)
@@ -180,9 +190,10 @@ function parseOpt(opt = {}) {
  * @param {Array} [opt.tableNamesExec=null] 輸入指定能被操作的表名陣列，各元素須為非空字串。useDbOrm為true時必填(可為空陣列)，預設null
  * @param {Array} [opt.tableNamesSync=null] 輸入指定能被同步的表名陣列，各元素須為非空字串，各表須在kpOrm中且可監聽change事件，並須有表操作select(見上方第4點)，未給時不同步，預設null
  * @param {Array} [opt.methodsExec=['select','insert','save','del']] 輸入指定綁定操作器的方式陣列，各元素須為非空字串，可選'select'、'insert'、'save'、'del'、'delAll'('delAll'為破壞性操作，不給條件即刪除全部，須審慎使用、非必要不列入，規則見上方第10點)。未給或null時取預設['select', 'insert', 'save', 'del']；useDbOrm為true時若有給須為陣列，否則拋錯
- * @param {Function} [opt.authorizeExec=null] 輸入資料表操作之授權函數，useDbOrm為true時必填，未給或非函數時拋錯。前端呼叫表操作時，會於呼叫operOrm之前傳入物件{ userId, tableName, methodName, input }(select、delAll之input為經白名單檢核之全新凍結複本，未給時為undefined，規則見上方第10點；其餘方法之input為前端原樣所送)，可使用sync或async函數，回傳值須嚴格等於true才放行。userId為getUserIdByToken所得，取不到時為空字串，宜拒絕；methodName為methodsExec所列之方法，宜以白名單判斷，其中'mix'之input可含多筆操作須自行解析，規則詳見上方說明，預設null
- * @param {Function} [opt.getUserIdByToken=async()=>''] 輸入取得使用者ID的回調函數，傳入參數為前端提供之token字串，可使用sync或async函數，回傳非字串時視為空字串，拋錯或reject時拒絕該次呼叫，規則詳見上方說明；有給但非函數時拋錯，預設async()=>''
- * @param {Object} [opt.kpFunExt=null] 輸入額外擴充執行函數物件，須為純物件，key為函數名而值為函數(值非函數時拋錯)，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，命名限制詳見上方說明，預設null
+ * @param {Function} [opt.authorizeExec=null] 輸入資料表操作之授權函數(身分驗證責任：授權表操作，採預設拒絕)，useDbOrm為true時必填，未給或非函數時拋錯。前端呼叫表操作時，會於呼叫operOrm之前傳入物件{ userId, tableName, methodName, input }(select、delAll之input為經白名單檢核之全新凍結複本，未給時為undefined，規則見上方第10點；其餘方法之input為前端原樣所送)，可使用sync或async函數，回傳值須嚴格等於true才放行。userId為getUserIdByToken所得，取不到時為空字串，宜拒絕；methodName為methodsExec所列之方法，宜以白名單判斷，其中'mix'之input可含多筆操作須自行解析，規則詳見上方說明，預設null
+ * @param {Function} [opt.getUserIdByToken=async()=>''] 輸入取得使用者ID的回調函數，傳入參數為前端提供之token字串(opt.getToken之值)，可使用sync或async函數，回傳非字串時視為空字串，拋錯或reject時拒絕該次呼叫(含輪詢)，規則詳見上方說明。身分驗證責任：此即驗證身分之步驟，須完整驗證(token有效、本系統使用者存在且啟用、部署方授權)，不可只解碼或只查id，與通訊層(例如w-converhp之verifyConn)所驗證者同等完整；預設async()=>''(無身分)，使用預設或固定回空字串者，系統函數除sysFuncsPublic所列者外皆被拒絕(見第11點)；有給但非函數時拋錯，預設async()=>''
+ * @param {Array} [opt.sysFuncsPublic=['[sys:getFuncList]']] 輸入無須身分即可呼叫之系統函數名陣列，元素須為'[sys:getFuncList]'、'[sys:getTableTags]'、'[sys:polling]'之一，列於其中者getUserIdByToken得空字串亦放行，未列者須得非空字串，否則回應permission denied(輪詢見第11點)；預設只公開函數名稱清單，空陣列則全部須身分。getUserIdByToken固定回空字串或沿用預設之部署(例如w-web-sso)須列出前端未登入時要呼叫者(通常為三者)。與useDbOrm無關；有給但非陣列或元素非上述三者之一時拋錯，建構後修改原陣列不生效，預設['[sys:getFuncList]']
+ * @param {Object} [opt.kpFunExt=null] 輸入額外擴充執行函數物件，須為純物件，key為函數名而值為函數(值非函數時拋錯)，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，含函數層級之角色或成員檢查(不可只靠通訊層之授權設定)，命名限制詳見上方說明，預設null
  * @param {String} [opt.fpTableTags='./tableTags.json'] 輸入儲存各資料表時間戳檔案路徑串，有給但非非空字串時拋錯，預設'./tableTags.json'
  * @param {Function} [opt.genTag=()=>'{random string}'] 輸入產生不重複識別碼函數，須回傳非空字串(回傳其他值時拋錯)，有給但非函數時拋錯，預設()=>'{random string}'
  * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast、clearSync停止服務(見上方第9點)
@@ -494,8 +505,30 @@ function WServWebdataServer(instWConverServer, opt = {}) {
         genTag, //供updateTableTag使用
     })
 
-    //擴充廣播功能, execute監聽器之註冊順序須為廣播先於資料通道, 否則[sys:polling]會被資料通道以invalid token搶先回應
-    instWConverServer = new WServBroadcastServer(instWConverServer)
+    //gate, 輪詢([sys:polling])之身分關卡, 以w-serv-broadcast 1.1.11起之opt.verifyPolling注入(見genPollingGate); 輪詢由廣播處理而不經資料通道之execFun, 故身分關卡經鉤子而非execFun
+    let gate = genPollingGate({
+        getUserIdByToken: optExec.getUserIdByToken,
+        isPublic: optExec.sysFuncsPublic.includes('[sys:polling]'),
+    })
+
+    //擴充廣播功能, execute監聽器之註冊順序須為廣播先於資料通道(資料通道之execFun對廣播運作中之輪詢只略過, 順序不影響結果, 但廣播已停止時才由資料通道回應)
+    instWConverServer = new WServBroadcastServer(instWConverServer, {
+        verifyPolling: gate.verifyPolling,
+    })
+
+    //clearBroadcast, 包裝廣播之同名函數: 先解除clientId之綁定並移除本套件掛於事件物件之clientLeave監聽, 再呼叫廣播之clearBroadcast; 停止後輪詢改由資料通道回應invalid token(rulebook L16)
+    //clientLeave(該clientId逾時離線)時解除其綁定, 使綁定之生命週期同在線身分; 先於使用端之監聽註冊(本函數於建構中, 使用端尚未能掛), 使用端監聽拋錯不影響本監聽
+    let hsGate = []
+    let clearBroadcastCore = instWConverServer.clearBroadcast
+    instWConverServer.clearBroadcast = () => {
+        gate.stop()
+        removeListeners(hsGate)
+        hsGate = []
+        clearBroadcastCore()
+    }
+    let onClientLeave = (clientId) => {
+        gate.release(clientId)
+    }
 
     //kpFunSys, 提供同步資料[sys:getTableTags]函數, 與使用端之kpFunExt分開傳入, 使kpFunExt之命名檢查不涉及系統函數
     let kpFunSys = {
@@ -512,12 +545,19 @@ function WServWebdataServer(instWConverServer, opt = {}) {
     //設定錯誤已於parseOpt拋出, 此處只剩執行期異常(例如使用端genTag拋錯、kpOrm之on拋錯), 拋錯前先釋放已建構之元件: 停止廣播之計時器(否則呼叫端攔下錯誤後程序仍被計時器撐住而無法結束), 釋放同步元件(殘留之實體不再更新時間戳或寫檔; 已掛於kpOrm之監聽由Sync回滾或經其包裝之clearSync移除)
     try {
 
+        //clientLeave監聽, 於try內註冊: 註冊拋錯時(例如事件物件之on拋錯)亦經catch停止已建構之廣播(其execute監聽與計時器)
+        instWConverServer.on('clientLeave', onClientLeave)
+        hsGate.push({ ev: instWConverServer, name: 'clientLeave', h: onClientLeave })
+
         //WServWebdataServerExec, 以parseOpt之結果建構, 不再重讀原始opt
         instWConverServer = new WServWebdataServerExec(
             instWConverServer,
             {
                 ...optExec,
                 kpFunSys,
+                isSysPollingActive: () => {
+                    return !gate.isStopped()
+                },
             },
         )
 
