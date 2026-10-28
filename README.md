@@ -55,8 +55,48 @@ new WServWebdataServer(inst, {
 })
 ```
 
+## Diagnostic output
+本套件自身之診斷輸出皆經單一出口(`src/getDiag.mjs`)，**預設只輸出固定標籤與不含資料值、使用者 id、token 及錯誤原文之摘要**。目前共兩處：
+* 前端：回調函數(`getServerMethods`、`recvData`、`getRefreshState`、`getRefreshTable`、`getBeforeUpdateTableTags`、`getAfterUpdateTableTags`)於停止後才拋錯(停止後不再發出 error 事件，改以 `console.error` 輸出，使用端程式之錯誤不可無聲)。預設輸出 `'[w-serv-webdata] callback error after stop'` 與 `{ hook, errType, errCode }`——回調函數名稱、錯誤類別(建構子名稱)與機器代碼(如 `ENOENT`、`ERR_*`、整數)，**不輸出錯誤訊息文字**(其可能夾帶資料值、使用者 id 或 token)。
+* 伺服端：`instWConverServer` 非有效物件而改建事件物件時，`console.log` 固定文字(不含資料值)，時機同舊版(先於其餘設定檢查)。
+
+兩個建構選項(前端 `WServWebdataClient` 與伺服端 `WServWebdataServer` 皆有，語意與 w-serv-orm 一致)：
+* `logDetail`(布林，預設 `false`)：`true` 時 `console` 輸出還原為完整細節(含錯誤原文與其附帶之資料，供除錯)。
+* `funLog(label, safe, detail)`(函數，預設無)：給予時診斷輸出只交給它而**不寫 console**；`label` 為固定標籤，`safe` 為不含資料值之摘要，`detail` 為完整細節(錯誤之拷貝，無細節者不傳)，供使用端遮罩或轉送至自己的日誌。其拋錯與回傳 promise 之 reject 皆被吞下，不影響本套件流程。
+
+**token 一律遮罩為 `[token]`**(預設、`logDetail`、`funLog` 皆然)：
+* `opt.getToken` 所得者(含輪詢所取；至多記住最近 128 個，以子字串比對，故過短之 token 也會遮罩字樣中相同的片段)。
+* 鍵名含 `token`、`authorization`、`api-key` 者之值(含 Symbol 鍵、Map 之鍵)，與 `Bearer` 憑證。
+* 字串內 `token=…`、`"__sysToken__":"…"`、`Authorization: Basic …`、`x-api-key=…`、引號包住含空白之值等鍵值形式之值。
+
+保證範圍：上述三類(「最近 128 個」以最近取得或使用為準，重複取得者視為最近使用)。**無法辨識之任意文字中的其他 token 不保證**(例如不在最近 128 個內、也不以上述鍵值形式出現者；已知 token 與 `Bearer`／鍵值樣式部分重疊時以先匹配者為準)。細節為拷貝，遮罩不改動原物件；拷貝時函數、RegExp、二進位資料、過深(8 層)或過大(5000 節點)者以標記字串代替，不執行 getter(`Error` 的 `stack` 為內建存取器，取其字串，與舊版 `console.error(err)` 同樣會讀 `stack`)，原型物件不複製(原型上的資料屬性不遮罩、可變狀態與原物件共用，類別上自訂的 `nodejs.util.inspect.custom` 輸出亦不受遮罩)；遇 `Proxy` 時其陷阱仍會被觸發(`instanceof` 判型，瀏覽器無從偵測 `Proxy`)。預設摘要中的錯誤類別取建構子名稱、代碼取自有屬性 `code`(限整數或 `ENOENT`、`ERR_*` 樣式)——兩者皆由使用端程式決定，以資料動態命名類別或把使用者識別存入 `code` 者不在保證範圍(摘要內若恰等於已知 token 仍遮罩)。細節拷貝需要 ES2015 之 `Reflect.ownKeys`、`ArrayBuffer.isView`(與本套件必備之 `AbortController` 同為現代環境)，缺者細節降為 `[Uncopyable]`。
+
+選項型別錯誤(`logDetail` 非布林、`funLog` 非函數)於建構任何元件之前拋錯(`invalid opt.logDetail`、`invalid opt.funLog`)，`null` 與 `undefined` 視為未給。診斷輸出本身不會使流程拋錯(`console` 或 `funLog` 拋錯一律吞下)。
+
+只涵蓋本套件自身之診斷輸出，**不含**：
+* 下層套件之輸出：回傳之事件物件**無 `error` 監聽者**時，w-serv-broadcast 與 w-sync-webdata 會以 `console.error` 輸出該 error 事件之內容(可能含 `getUserIdByToken` 之原拒絕值)；`error` 監聽器自身拋錯時，wsemi 亦會 `console.error` 輸出該拋出值。使用端請對回傳之事件物件掛 `error` 監聽，且監聽器不可拋錯。
+* 事件、回應與 reject 之內容(契約，原錯誤值原樣交出)。
+* 使用端函數之輸出，以及回調函數的非同步 reject(回調函數為同步呼叫，`async` 回調回傳之 promise 的 reject 不被本套件攔截，屬既有行為)。
+
+```alias
+// 預設：只輸出標籤與摘要
+new WServWebdataClient(inst, { /* ... */ })
+
+// 除錯：還原完整細節(token 仍遮罩)
+new WServWebdataClient(inst, { logDetail: true, /* ... */ })
+
+// 轉送至自己的日誌(自行遮罩個資)
+new WServWebdataClient(inst, {
+    funLog: (label, safe, detail) => {
+        logger.error(label, safe) // detail 含完整細節，需要時自行遮罩後再記錄
+    },
+    // ...
+})
+```
+
 ## Upgrade Notes
 使用端須配合之處：
+* **新選項 `logDetail`、`funLog`(前端與伺服端)，預設不輸出錯誤原文**：前端回調函數於停止後才拋錯時，`console.error` 原輸出 `(標籤, 錯誤本身)`，現預設只輸出 `(標籤, { hook, errType, errCode })`；需要原輸出者設 `logDetail: true`，或以 `funLog` 取得完整細節。事件、回傳值與 reject 內容不變；既有部署不必改設定。
 * **新選項 `sysFuncsPublic`，預設三者皆公開(與升級前行為相同，既有部署不必改設定)**：已發布之前端元件其輪詢不帶 token，預設收緊會使其即時同步失效、未登入頁(如 w-web-sso 登入頁)不可用；框架預設多為放行，使用方須自行設定。與舊前端元件(輪詢輸入恰為 `{ clientId }`)組合時，綁定、同步、輪詢皆正常，該輪詢不反查。
 * **建議**：使用端將前端改用本版元件(輪詢帶 `__sysToken__`)的同一版本中，將伺服端設為 `sysFuncsPublic: ['[sys:getFuncList]']`，使無身分者取不到同步表時間戳與廣播；此嚴格設定下，`[sys:getTableTags]`、`[sys:polling]` 須 `getUserIdByToken` 得非空字串，否則 `permission denied`，且未帶 token 之舊前端元件被拒絕(空身分)。
 * **未登入須能進登入頁者(如 w-web-sso)**：維持預設，或顯式列出 `['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]']`；若採嚴格設定，前端會因輪詢被拒絕而無法綁定 `$fapi`，伺服端會見到 error 事件(`func` 為 `[sys:getTableTags]`，或 `msg` 為 `[sys:polling] permission denied`)。
@@ -499,14 +539,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.17/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.18/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.17/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.18/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

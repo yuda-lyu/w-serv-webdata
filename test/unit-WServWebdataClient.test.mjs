@@ -500,6 +500,7 @@ describe('unit-WServWebdataClient', function() {
         })
 
         //R56: 回調函數於自身內停止後才拋錯者, 停止後不再發出error事件, 改以console.error輸出: 使用端程式之錯誤不可無聲(同w-serv-broadcast); 原於停止後仍發出error, 僅加停止閘門時則完全無聲
+        //R18(診斷輸出): 預設只輸出標籤與不含錯誤原文之摘要(原斷言輸出之第2項為錯誤本身, message為'boomAfterStop'; 診斷輸出之變更, 原文見logDetail與funLog, 詳unit-diaglog)
         it('回調函數於自身內停止後拋錯時不發出error而以console.error輸出', async function() {
             this.timeout(20000)
             let { cl } = linkCtl()
@@ -522,7 +523,8 @@ describe('unit-WServWebdataClient', function() {
                 let mine = logged.filter((v) => v[0] === '[w-serv-webdata] callback error after stop')
                 assert.strict.deepEqual(log.rawErrors, [])
                 assert.strict.equal(mine.length, 1)
-                assert.strict.equal(mine[0][1].message, 'boomAfterStop')
+                assert.strict.deepEqual(mine[0], ['[w-serv-webdata] callback error after stop', { hook: 'recvData', errType: 'Error' }])
+                assert.strict.equal(JSON.stringify(logged).includes('boomAfterStop'), false)
             }
             finally {
                 console.error = consoleError
