@@ -5,8 +5,11 @@ import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
+import { genTracer } from './tools/tracer.mjs'
 
 
+//同步以事件而非等待毫秒: 伺服器就緒等WConverhpServer之ready(w-converhp 2.1.12起); 等待「前端已綁定、已收資料或推播、已見error」與「伺服端已見error事件」一律為狀態條件(waitFor),
+//  條件所依之狀態變更(前端之getServerMethods、recvData、broadcast、error監聽, 伺服端之error監聽)皆同時記一則事件, 並轉入前後端之opt.onTrace(伺服端之error事件由w-serv-broadcast以1ms脫勾派發), 條件於每則事件後重新檢查
 //以真WConverhpServer與WConverhpClient經HTTP驗證系統函數與輪詢之身分關卡(與unit-sysFuncs互補: 不經假通訊層, 驗證前端輪詢實際帶token、伺服端實際反查、拒絕時前端實際所見):
 //  perm型(嚴格設定: 只公開[sys:getFuncList]): verifyConn驗標頭token、getUserIdByToken驗本體token(__sysToken__), 前端useWaitToken型態, 新前端可綁定$fapi並收到廣播; 持標頭token之匿名者、其他身分者與未帶token之舊前端元件收不到他人之廣播
 //  perm型(預設): 未設sysFuncsPublic(三者皆公開, 相容既有行為), getUserIdByToken對空token拒絕(fail-closed): 已發布之舊前端元件(輪詢輸入恰為{ clientId })可綁定、同步、輪詢, 新前端元件亦可
@@ -25,20 +28,29 @@ describe('api-sysFuncs', function() {
     let portSsoStrict = 9006
     let portPermDef = 9007
 
-    let sleep = (ms) => {
-        return new Promise((resolve) => {
-            setTimeout(resolve, ms)
-        })
+    //tr, 全檔共用之事件記錄器(前後端之opt.onTrace以src標明來源後轉入; 狀態變更另記note事件), 逾時上限只防懸置
+    let tr = genTracer({ msCap: 25000 })
+
+    //tag, 轉入tr之opt.onTrace, 加src標明來源
+    let tag = (src) => {
+        return (e) => {
+            tr.onTrace({ ...e, src })
+        }
     }
 
-    //waitFor, 條件成立時結束, 逾時則拋錯(輪詢間隔2秒, 綁定約需2.x秒)
-    let waitFor = async (fn, ms = 15000, label = '') => {
-        let t = Date.now()
-        while (!fn()) {
-            if (Date.now() - t > ms) {
-                throw new Error(`waitFor timeout ${label}`)
-            }
-            await sleep(50)
+    //note, 記錄狀態變更
+    let note = (type, src) => {
+        tr.onTrace({ type, src })
+    }
+
+    //waitFor, 狀態條件成立時結束(於每則事件之後檢查); label供逾時時辨識, 逾時上限見tr
+    let waitFor = async (fn, label = '') => {
+        try {
+            await tr.until(fn)
+        }
+        catch (err) {
+            err.message = `waitFor ${label}: ${err.message}`
+            throw err
         }
     }
 
@@ -92,16 +104,21 @@ describe('api-sysFuncs', function() {
             getServerMethods: (fapi) => {
                 log.bound = true
                 log.fapi = fapi
+                note('bound', 'front')
             },
             recvData: (r) => {
                 log.recv.push(r)
+                note('recv', 'front')
             },
+            onTrace: tag('front'),
         })
         cl.on('error', (e) => {
             log.errors.push(e)
+            note('error', 'front')
         })
         cl.on('broadcast', (data) => {
             log.broadcasts.push(data)
+            note('broadcast', 'front')
         })
         cleans.push(() => {
             cl.clearBroadcast()
@@ -121,19 +138,20 @@ describe('api-sysFuncs', function() {
 
         before(async function() {
             this.timeout(30000)
-            srv = new WConverhpServer({
+            let wsv = new WConverhpServer({
                 port: portPerm,
                 pathUploadTemp: `${fdTmp}/uploadTemp-perm`,
                 verifyConn: async ({ authorization }) => {
                     return authorization === 'Bearer hdrOk'
                 },
             })
-            srv.on('execute', (func, input) => { //被動觀察者(不結算pm), 註冊於本套件之監聽之前
+            wsv.on('execute', (func, input) => { //被動觀察者(不結算pm), 註冊於本套件之監聽之前
                 if (func === '[sys:polling]') {
                     seen.push(JSON.parse(JSON.stringify(input)))
                 }
             })
-            srv = new WServWebdataServer(srv, {
+            srv = new WServWebdataServer(wsv, {
+                onTrace: tag('srv-perm'),
                 fpTableTags: `${fdTmp}/tags-perm.json`,
                 sysFuncsPublic: ['[sys:getFuncList]'], //建議之嚴格設定(前端皆為帶token之元件時): 無身分者取不到時間戳與廣播
                 getUserIdByToken: async (token) => {
@@ -159,17 +177,18 @@ describe('api-sysFuncs', function() {
             })
             srv.on('error', (e) => {
                 errs.push(e)
+                note('error', 'srv-perm')
             })
             cleans.push(async () => {
                 srv.clearBroadcast()
                 srv.clearSync()
                 await srv.stop()
             })
-            await sleep(300)
+            assert.strict.equal(await wsv.ready, true, '伺服器已就緒') //w-converhp 2.1.12起ready恆resolve, 啟動失敗為false
 
             //前端: clientId固定, 以利攻擊情境指向之
             front = mkFront({ port: portPerm, tokHdr: 'hdrOk', tokBody: 'bodyU1', clientId: 'victim-c1' })
-            await waitFor(() => front.log.bound, 15000, 'bound')
+            await waitFor(() => front.log.bound, 'bound')
         })
 
         //任務範圍4+完成條件1(H01): 新前端可綁定$fapi, 輪詢帶本體token(伺服端實際所見)並經getUserIdByToken反查, execFun略過輪詢後輪詢正常
@@ -183,16 +202,15 @@ describe('api-sysFuncs', function() {
                 assert.strict.equal(v.__sysToken__, 'bodyU1', '輪詢帶前端opt.getToken之值')
             }
             assert.strict.ok(calls.filter((v) => v === 'bodyU1').length >= mine.length + 2, '每輪輪詢反查1次, 另有取函數清單與取時間戳之反查')
-            await waitFor(() => front.log.recv.length >= 1, 15000, 'recv')
+            await waitFor(() => front.log.recv.length >= 1, 'recv')
             assert.strict.deepEqual(front.log.recv[0].tableName, 'tabA')
             assert.strict.deepEqual(front.log.errors, [], '前端無輪詢失敗')
         })
 
         //任務範圍3: 輪詢經身分關卡後, 部署方broadcast仍由其所屬clientId之前端收到
         it('部署方broadcast由已驗證之前端收到', async function() {
-            let n = front.log.broadcasts.length
             srv.broadcast({ note: 'hello' })
-            await waitFor(() => front.log.broadcasts.length > n, 15000, 'broadcast')
+            await waitFor(() => front.log.broadcasts.some((v) => v && v.note === 'hello'), 'broadcast') //依內容等該則廣播本身
             assert.strict.deepEqual(front.log.broadcasts.at(-1), { note: 'hello' })
         })
 
@@ -219,14 +237,14 @@ describe('api-sysFuncs', function() {
 
         //任務範圍3(clientId歸屬): 另一有效身分(u2)以他人clientId輪詢被拒絕, 且不取走該clientId之佇列
         it('另一有效身分輪詢他人之clientId被拒絕, 他人仍收到其後之廣播', async function() {
-            let n = front.log.broadcasts.length
             let r = await rawCall(portPerm, 'hdrOk', '[sys:polling]', { clientId: 'victim-c1', __sysToken__: 'bodyU2' })
             assert.strict.equal(r.ok, false)
             assert.strict.equal(r.err, '[sys:polling] permission denied')
-            await sleep(100) //error事件以1ms計時器派發
+            await waitFor(() => errs.some((e) => e && e.msg === '[sys:polling] permission denied' && e.err === 'clientId belongs to another userId'), 'srv error') //error事件由w-serv-broadcast以1ms計時器脫勾派發
             assert.strict.ok(errs.some((e) => e && e.msg === '[sys:polling] permission denied' && e.err === 'clientId belongs to another userId'), '伺服端error事件記錄原因')
             srv.broadcast('after-hijack')
-            await waitFor(() => front.log.broadcasts.length > n, 15000, 'broadcast after hijack')
+            //等該則廣播本身(依內容), 不以「多了一則」判定: 前一條測試之廣播('secret-for-members')可能與本則同一輪詢批次到達(各以1ms脫勾派發), 事件同步比輪詢檢查更早醒來
+            await waitFor(() => front.log.broadcasts.includes('after-hijack'), 'broadcast after hijack')
             assert.strict.equal(front.log.broadcasts.at(-1), 'after-hijack')
             //其自己之clientId可正常輪詢
             let r2 = await rawCall(portPerm, 'hdrOk', '[sys:polling]', { clientId: 'own-u2', __sysToken__: 'bodyU2' })
@@ -239,7 +257,7 @@ describe('api-sysFuncs', function() {
             let r = await rawCall(portPerm, 'hdrOk', '[sys:polling]', { clientId: 'atk-3', __sysToken__: 'bodyBad' })
             assert.strict.equal(r.ok, false)
             assert.strict.equal(r.err, '[sys:polling] permission denied')
-            await sleep(50)
+            await waitFor(() => errs.some((e) => e && e.msg === '[sys:polling] verifyPolling error' && e.err === 'errUserIdMissing'), 'srv error') //error事件由w-serv-broadcast以1ms計時器脫勾派發
             assert.strict.ok(errs.some((e) => e && e.msg === '[sys:polling] verifyPolling error' && e.err === 'errUserIdMissing'))
         })
 
@@ -256,10 +274,10 @@ describe('api-sysFuncs', function() {
             this.timeout(40000)
             let n = errs.length
             let old = mkFront({ port: portPerm, tokHdr: 'hdrOk', tokBody: 'bodyU1', clientId: 'old-c2', oldFront: true })
-            await waitFor(() => old.log.errors.some((e) => e && e.msg === '[sys:polling] error'), 20000, 'old errors')
+            await waitFor(() => old.log.errors.some((e) => e && e.msg === '[sys:polling] error'), 'old errors')
             assert.strict.equal(old.log.bound, false)
             assert.strict.ok(old.log.errors.some((e) => e && e.msg === '[sys:polling] error' && e.err === '[sys:polling] permission denied'), JSON.stringify(old.log.errors))
-            await sleep(100)
+            await waitFor(() => errs.slice(n).some((e) => e && e.msg === '[sys:polling] permission denied' && e.err === 'empty userId'), 'srv error') //error事件由w-serv-broadcast以1ms計時器脫勾派發
             assert.strict.ok(errs.slice(n).some((e) => e && e.msg === '[sys:polling] permission denied' && e.err === 'empty userId'), '伺服端見到無身分之拒絕')
             assert.strict.equal(front.log.bound, true, '新前端元件不受影響')
         })
@@ -268,12 +286,14 @@ describe('api-sysFuncs', function() {
     describe('sso型(固定回空字串、useDbOrm:false)', function() {
 
         //啟動伺服端與未登入前端, 回傳{ srv, errs, front, calls }
-        let boot = async ({ port, tag, sysFuncsPublic }) => {
+        let boot = async ({ port, tag: tagName, sysFuncsPublic }) => {
             let calls = []
             let errs = []
-            let srv = new WConverhpServer({ port, pathUploadTemp: `${fdTmp}/uploadTemp-${tag}`, verifyConn: async () => true })
+            let wsv = new WConverhpServer({ port, pathUploadTemp: `${fdTmp}/uploadTemp-${tagName}`, verifyConn: async () => true })
+            let srv = wsv
             let opt = {
-                fpTableTags: `${fdTmp}/tags-${tag}.json`,
+                onTrace: tag(`srv-${tagName}`),
+                fpTableTags: `${fdTmp}/tags-${tagName}.json`,
                 getUserIdByToken: async (token) => {
                     calls.push(token)
                     return ''
@@ -291,13 +311,14 @@ describe('api-sysFuncs', function() {
             srv = new WServWebdataServer(srv, opt)
             srv.on('error', (e) => {
                 errs.push(e)
+                note('error', `srv-${tagName}`)
             })
             cleans.push(async () => {
                 srv.clearBroadcast()
                 srv.clearSync()
                 await srv.stop()
             })
-            await sleep(300)
+            assert.strict.equal(await wsv.ready, true, '伺服器已就緒') //w-converhp 2.1.12起ready恆resolve, 啟動失敗為false
             let front = mkFront({ port, tokHdr: '', tokBody: '' })
             return { srv, errs, front, calls }
         }
@@ -310,12 +331,12 @@ describe('api-sysFuncs', function() {
                 tag: 'sso-pub',
                 sysFuncsPublic: ['[sys:getFuncList]', '[sys:getTableTags]', '[sys:polling]'],
             })
-            await waitFor(() => front.log.bound, 15000, 'bound')
+            await waitFor(() => front.log.bound, 'bound')
             assert.strict.deepEqual(await front.log.fapi.getWebInfor(), { webName: 'sso', userId: '' })
             //輪詢續行且得到廣播
             let n = front.log.broadcasts.length
             srv.broadcast('to-anonymous')
-            await waitFor(() => front.log.broadcasts.length > n, 15000, 'broadcast')
+            await waitFor(() => front.log.broadcasts.length > n, 'broadcast')
             assert.strict.deepEqual(front.log.errors, [])
             assert.strict.deepEqual(errs, [])
             assert.strict.ok(calls.length >= 3, '輪詢、函數清單、getWebInfor皆經反查')
@@ -326,12 +347,12 @@ describe('api-sysFuncs', function() {
             this.timeout(40000)
             let { front, errs, srv } = await boot({ port: portSsoDef, tag: 'sso-def' })
             let old = mkFront({ port: portSsoDef, tokHdr: '', tokBody: '', clientId: 'old-sso', oldFront: true })
-            await waitFor(() => front.log.bound && old.log.bound, 15000, 'bound')
+            await waitFor(() => front.log.bound && old.log.bound, 'bound')
             assert.strict.deepEqual(await front.log.fapi.getWebInfor(), { webName: 'sso', userId: '' })
             assert.strict.deepEqual(await old.log.fapi.getWebInfor(), { webName: 'sso', userId: '' })
             let n = old.log.broadcasts.length
             srv.broadcast('to-anonymous')
-            await waitFor(() => old.log.broadcasts.length > n, 15000, 'broadcast to old')
+            await waitFor(() => old.log.broadcasts.length > n, 'broadcast to old')
             assert.strict.deepEqual(front.log.errors, [])
             assert.strict.deepEqual(old.log.errors, [])
             assert.strict.deepEqual(errs, [])
@@ -341,7 +362,7 @@ describe('api-sysFuncs', function() {
         it('嚴格設定只公開[sys:getFuncList]: 前端因輪詢被拒絕而不綁定, 伺服端見到拒絕之error事件', async function() {
             this.timeout(40000)
             let { front, errs } = await boot({ port: portSsoStrict, tag: 'sso-strict', sysFuncsPublic: ['[sys:getFuncList]'] })
-            await waitFor(() => front.log.errors.some((e) => e && e.msg === '[sys:polling] error') && errs.length >= 1, 20000, 'errors')
+            await waitFor(() => front.log.errors.some((e) => e && e.msg === '[sys:polling] error') && errs.length >= 1, 'errors')
             assert.strict.equal(front.log.bound, false)
             //前端之error事件含通訊物件自身之各次嘗試失敗(字串訊息)與w-serv-broadcast之輪詢失敗
             assert.strict.ok(front.log.errors.some((e) => e && e.msg === '[sys:polling] error' && e.err === '[sys:polling] permission denied'), JSON.stringify(front.log.errors))
@@ -359,19 +380,20 @@ describe('api-sysFuncs', function() {
 
         before(async function() {
             this.timeout(30000)
-            srv = new WConverhpServer({
+            let wsv = new WConverhpServer({
                 port: portPermDef,
                 pathUploadTemp: `${fdTmp}/uploadTemp-perm-def`,
                 verifyConn: async ({ authorization }) => {
                     return authorization === 'Bearer hdrOk'
                 },
             })
-            srv.on('execute', (func, input) => {
+            wsv.on('execute', (func, input) => {
                 if (func === '[sys:polling]') {
                     seen.push(JSON.parse(JSON.stringify(input)))
                 }
             })
-            srv = new WServWebdataServer(srv, {
+            srv = new WServWebdataServer(wsv, {
+                onTrace: tag('srv-perm-def'),
                 fpTableTags: `${fdTmp}/tags-perm-def.json`,
                 getUserIdByToken: async (token) => {
                     calls.push(token)
@@ -390,26 +412,26 @@ describe('api-sysFuncs', function() {
             })
             srv.on('error', (e) => {
                 errs.push(e)
+                note('error', 'srv-perm-def')
             })
             cleans.push(async () => {
                 srv.clearBroadcast()
                 srv.clearSync()
                 await srv.stop()
             })
-            await sleep(300)
+            assert.strict.equal(await wsv.ready, true, '伺服器已就緒') //w-converhp 2.1.12起ready恆resolve, 啟動失敗為false
         })
 
         //裁示Q1②+範圍2: 預設下已發布之舊前端元件(輪詢輸入恰為{ clientId })與新伺服端組合時, 綁定、同步、輪詢、廣播皆正常; 其輪詢不反查(不因空token被fail-closed之反查拒絕)
         it('舊前端元件(輪詢不帶token)可綁定、同步資料並收廣播, 輪詢不反查', async function() {
             this.timeout(40000)
             let old = mkFront({ port: portPermDef, tokHdr: 'hdrOk', tokBody: 'bodyU1', clientId: 'old-c1', oldFront: true })
-            await waitFor(() => old.log.bound, 15000, 'bound')
+            await waitFor(() => old.log.bound, 'bound')
             assert.strict.equal(old.log.bound, true)
-            await waitFor(() => old.log.recv.length >= 1, 15000, 'sync recv')
+            await waitFor(() => old.log.recv.length >= 1, 'sync recv')
             assert.strict.equal(old.log.recv[0].tableName, 'tabA')
-            let n = old.log.broadcasts.length
             srv.broadcast({ note: 'to-old' })
-            await waitFor(() => old.log.broadcasts.length > n, 15000, 'broadcast')
+            await waitFor(() => old.log.broadcasts.some((v) => v && v.note === 'to-old'), 'broadcast') //依內容等該則廣播本身
             assert.strict.deepEqual(old.log.broadcasts.at(-1), { note: 'to-old' })
             let mine = seen.filter((v) => v.clientId === 'old-c1')
             assert.strict.ok(mine.length >= 2, '伺服端見到該前端多輪輪詢')
@@ -425,10 +447,10 @@ describe('api-sysFuncs', function() {
         it('新前端元件(輪詢帶token)於預設亦可綁定、收廣播, 與舊元件並存', async function() {
             this.timeout(40000)
             let cur = mkFront({ port: portPermDef, tokHdr: 'hdrOk', tokBody: 'bodyU1', clientId: 'new-c1' })
-            await waitFor(() => cur.log.bound, 15000, 'bound')
+            await waitFor(() => cur.log.bound, 'bound')
             let n = cur.log.broadcasts.length
             srv.broadcast({ note: 'to-new' })
-            await waitFor(() => cur.log.broadcasts.length > n, 15000, 'broadcast')
+            await waitFor(() => cur.log.broadcasts.length > n, 'broadcast')
             let mine = seen.filter((v) => v.clientId === 'new-c1')
             assert.strict.ok(mine.length >= 1)
             for (let v of mine) {

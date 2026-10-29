@@ -1,9 +1,12 @@
 //api-clientStop之前端子行程(不帶.test., 不被runner當測試檔): 只含前端, 伺服端在測試行程, 使伺服端之延遲計時器不影響本行程結束時間之量測
 //用法: node clientStopChild.mjs <scenario> <port>; 行程結束時印一行'RESULT {...}'
-//  res.exitDelay: 停止至本行程自然結束之毫秒(本行程不呼叫process.exit, 只有看門狗逾時才結束)
+//  res.exitDelay: 停止至本行程自然結束之毫秒(本行程不呼叫process.exit, 只有看門狗逾時才結束), 僅供診斷, 不作斷言(牆鐘受負載影響; 「行程可立即結束」改以下列二結構指標判定, 見api-clientStop)
+//  res.inFlightAfterFlush: 停止後一個macrotask(setImmediate)時仍在途之請求數(含輪詢): 停止時在途之請求若被中止, 其拒絕於微任務內完成, 此時須為0; 未中止者(伺服端延遲3秒)仍在途
+//  res.activeAfterDrain: 停止後再讓兩層1ms計時器跑完並讓出一個macrotask後, process.getActiveResourcesInfo()之內容(unref之看門狗與負載試驗之預載計時器不計入): 不得殘留Timeout(殘留者行程無法立即結束)
 //  res.errorsAfterStop: 停止後通訊物件上之全部error(w-converhp每次嘗試失敗為字串, w-serv-broadcast與w-sync-webdata為{msg,...})
 //  res.logsAfterStop: 停止後之console.log(w-converhp之重試訊息)
 //  res.pollInFlightAtStop: 停止當下在途之輪詢數(w-serv-broadcast 1.1.8之輪詢不帶signal而不被中止, 供判讀)
+//停止時機以因果而非等待毫秒: 於目標請求(tags: [sys:getTableTags], select: tabA.select)已交給通訊物件後的微任務內停止; fapi情境於首次同步批次完成(getAfterUpdateTableTags)時
 //通訊物件之timeout為1000ms: 伺服端對tokSlow延遲3000ms, 使本套件在途之請求於停止後(若未中止)逾時而依retryMain=3重試並逐次發出error; 伺服器本身不停止(輪詢照常成功)
 import path from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
@@ -17,7 +20,7 @@ let { default: WServWebdataClient } = await import(pathToFileURL(path.resolve(fd
 
 let t0 = Date.now()
 let now = () => Date.now() - t0
-let res = { scenario, tStop: null, errorsAfterStop: [], logsAfterStop: [], hooksAfterStop: [], tokenAfterStop: 0, pollInFlightAtStop: null, fapi: null, exitDelay: null }
+let res = { scenario, tStop: null, errorsAfterStop: [], logsAfterStop: [], hooksAfterStop: [], tokenAfterStop: 0, pollInFlightAtStop: null, inFlightAfterFlush: null, activeAfterDrain: null, fapi: null, exitDelay: null }
 
 //w-converhp之重試訊息經console.log輸出, 停止後者記錄之
 let log0 = console.log
@@ -30,16 +33,29 @@ console.log = (...args) => {
 //conv, 記錄在途之輪詢數(轉呼叫時原樣傳遞全部參數)
 let conv = new WConverhpClient({ url: `http://localhost:${sport}`, timeout: 1000 })
 let pollInFlight = 0
+let inFlight = 0 //全部在途之請求(含輪詢)
+let stopOnSend = null //目標請求名: 該請求交給通訊物件後的微任務內停止(請求在途)
 let execute0 = conv.execute
 conv.execute = (...args) => {
-    if (args[0] !== '[sys:polling]') {
-        return execute0(...args)
+    let isPoll = args[0] === '[sys:polling]'
+    inFlight++
+    if (isPoll) {
+        pollInFlight++
     }
-    pollInFlight++
-    return execute0(...args)
+    let p = execute0(...args)
         .finally(() => {
-            pollInFlight--
+            inFlight--
+            if (isPoll) {
+                pollInFlight--
+            }
         })
+    if (args[0] === stopOnSend) {
+        stopOnSend = null
+        queueMicrotask(() => {
+            stop()
+        })
+    }
+    return p
 }
 
 let token = 'tok'
@@ -47,12 +63,24 @@ let cl = null
 let fapi = null
 let onServerMethods = () => {}
 let onRefreshTable = () => {}
-let onRecv = () => {}
+let onAfter = () => {}
 let stop = () => {
     res.tStop = now()
     res.pollInFlightAtStop = pollInFlight
     cl.clearBroadcast()
     cl.clearSync()
+
+    //停止後一個macrotask: 在途之請求是否已被中止; 再讓兩層1ms計時器(已排定之派發)跑完並讓出一個macrotask後, 是否殘留計時器
+    setImmediate(() => {
+        res.inFlightAfterFlush = inFlight
+        setTimeout(() => {
+            setTimeout(() => {
+                setImmediate(() => {
+                    res.activeAfterDrain = process.getActiveResourcesInfo()
+                })
+            }, 1)
+        }, 1)
+    })
 }
 let hook = (name, fn) => {
     return (...args) => {
@@ -75,15 +103,15 @@ cl = new WServWebdataClient(conv, {
         fapi = r
         onServerMethods()
     }),
-    recvData: hook('recvData', () => {
-        onRecv()
-    }),
+    recvData: hook('recvData'),
     getRefreshState: hook('getRefreshState'),
     getRefreshTable: hook('getRefreshTable', () => {
         onRefreshTable()
     }),
     getBeforeUpdateTableTags: hook('getBeforeUpdateTableTags'),
-    getAfterUpdateTableTags: hook('getAfterUpdateTableTags'),
+    getAfterUpdateTableTags: hook('getAfterUpdateTableTags', () => {
+        onAfter()
+    }),
 })
 cl.on('error', (err) => {
     if (res.tStop !== null) {
@@ -109,24 +137,24 @@ if (scenario === 'fnList') {
     }
 }
 else if (scenario === 'tags') {
-    //取時間戳在途時停止
+    //取時間戳在途時停止(伺服端對tokSlow延遲3秒): 取時間戳交給通訊物件後停止
     onServerMethods = () => {
         token = 'tokSlow'
-        setTimeout(stop, 50)
+        stopOnSend = '[sys:getTableTags]'
     }
 }
 else if (scenario === 'select') {
-    //同步表之select在途時停止
+    //同步表之select在途時停止: select交給通訊物件後停止
     onRefreshTable = () => {
         token = 'tokSlow'
-        setTimeout(stop, 50)
+        stopOnSend = 'tabA.select'
     }
 }
 else if (scenario === 'fapi') {
-    //同步完成後使用端呼叫函數(伺服端延遲300ms), 隨即停止: 照常結算
-    onRecv = () => {
-        onRecv = () => {}
-        setTimeout(async () => {
+    //首次同步批次完成後使用端呼叫函數(伺服端延遲300ms), 隨即停止: 照常結算
+    onAfter = () => {
+        onAfter = () => {}
+        let core = async () => {
             token = 'tokMid'
             let p = fapi.tabA.select()
             stop()
@@ -136,6 +164,7 @@ else if (scenario === 'fapi') {
             catch (err) {
                 res.fapi = { state: 'reject', err: String(err) }
             }
-        }, 50)
+        }
+        core()
     }
 }

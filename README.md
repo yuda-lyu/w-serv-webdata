@@ -94,8 +94,27 @@ new WServWebdataClient(inst, {
 })
 ```
 
+## Observation callback (onTrace)
+前端 `WServWebdataClient` 與伺服端 `WServWebdataServer` 皆有選用之觀察回調 `opt.onTrace`(函數，格式 `(e) => {}`，預設無)，供測試與診斷以**事件**(而非等待毫秒)同步：
+* 本套件自身無計時器，`onTrace` **原樣轉交**所包之 w-serv-broadcast(前端、伺服端各一，1.1.14 起)，事件**不增不減**，欄位與時機以其 JSDoc 為準；**不轉交** w-sync-webdata 之 `onTrace`。
+* 前端事件：`start`(輪詢計時器建立)、`tick`(計時器每次觸發)、`request`(發出第 n 輪輪詢)、`result`(第 n 輪結果)、`stop`(`clearBroadcast` 首次呼叫完成)，另有兩端共用之 `emit`(事件已排定於 1ms 後派發)、`deliver`(事件已派發而監聽器皆已呼叫完)、`report`(改以 error 事件或 `console.error` 通報)。
+* 伺服端事件：`alive`(在線偵測之 `enter`／`leave`／`tick`／`stop`，種類欄位為 `evType`)、`prune`(修剪佇列)、`stop`，另有兩端共用之 `emit`、`deliver`、`report`。
+* 語意：回調同步呼叫、不帶接收者；`e` 為凍結之 `{ type, ... }` 物件、欄位皆為原始值；回調拋錯與回傳之 rejection 一律忽略，不影響本套件；未給或非函數時不組事件物件，行為、時序與效能同未提供。停止後除停止當下已在進行之那次派發外不再通知。
+* 經資料通道之 `execute` 所發出的 `error` 事件(拒絕表操作、系統函數等)為同步派發，不經 `emit`／`deliver`；輪詢被拒絕(`verifyPolling`)之 `error` 事件經 `emit`／`deliver`。
+
+```alias
+let events = []
+let client = new WServWebdataClient(instWConverClient, {
+    onTrace: (e) => {
+        events.push(e) // { type: 'result', n: 1, ok: true, reason: 'ok', msgs: 0 } ...
+    },
+    // ...
+})
+```
+
 ## Upgrade Notes
 使用端須配合之處：
+* **新選項 `onTrace`(前端與伺服端)，無破壞性變更**：選用，未給時行為不變；相依升為 `w-serv-broadcast ^1.1.14`、`w-sync-webdata ^1.1.10`、`wsemi ^1.9.30`，無須改設定。
 * **新選項 `logDetail`、`funLog`(前端與伺服端)，預設不輸出錯誤原文**：前端回調函數於停止後才拋錯時，`console.error` 原輸出 `(標籤, 錯誤本身)`，現預設只輸出 `(標籤, { hook, errType, errCode })`；需要原輸出者設 `logDetail: true`，或以 `funLog` 取得完整細節。事件、回傳值與 reject 內容不變；既有部署不必改設定。
 * **新選項 `sysFuncsPublic`，預設三者皆公開(與升級前行為相同，既有部署不必改設定)**：已發布之前端元件其輪詢不帶 token，預設收緊會使其即時同步失效、未登入頁(如 w-web-sso 登入頁)不可用；框架預設多為放行，使用方須自行設定。與舊前端元件(輪詢輸入恰為 `{ clientId }`)組合時，綁定、同步、輪詢皆正常，該輪詢不反查。
 * **建議**：使用端將前端改用本版元件(輪詢帶 `__sysToken__`)的同一版本中，將伺服端設為 `sysFuncsPublic: ['[sys:getFuncList]']`，使無身分者取不到同步表時間戳與廣播；此嚴格設定下，`[sys:getTableTags]`、`[sys:polling]` 須 `getUserIdByToken` 得非空字串，否則 `permission denied`，且未帶 token 之舊前端元件被拒絕(空身分)。
@@ -539,14 +558,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.18/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.19/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.18/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.19/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

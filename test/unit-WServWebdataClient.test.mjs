@@ -4,11 +4,15 @@ import evem from 'wsemi/src/evem.mjs'
 import genPm from 'wsemi/src/genPm.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
-import { sleep, extraHooks, zeros, genRun, linkCtl } from './tools/clientHarness.mjs'
+import { genTracer } from './tools/tracer.mjs'
+import { sleep, drain, extraHooks, zeros, genRun, linkCtl } from './tools/clientHarness.mjs'
 
 
 //前端與後端以記憶體假通訊層相連(不開埠, 以JSON複製模擬序列化), 驗證前端之設定檢查、綁定前之同步廣播、refreshTable各路徑之結束與回調函數之隔離
 //停止之各條用linkCtl(不支援opt.signal之通訊物件, 守停止閘門); 中止(opt.signal)之行為見unit-WServWebdataClientAbort
+//同步一律以事件(log.tr: opt.onTrace轉交w-serv-broadcast前端之事件與測試輔助之hook、error、exec、execEnd事件, 見./tools/clientHarness.mjs; 自備之getToken以tokenEnd記錄非同步之結束), 不以等待毫秒:
+//  肯定部分等第N個事件(輪詢首輪結果於約2秒時, 其後鏈上各請求皆由事件接續); 否定部分(「停止後不再X」)等該鏈上最後一個肯定事件後以drain讓已排定之微任務與1ms脫勾派發跑完再斷言
+//  「首輪輪詢成功前停止」一條無事件可等(停止後輪詢計時器已清除), 保留觀察窗, 窗長大於輪詢間隔2秒; 計時器依到期時間排序, 缺陷版之輪詢必早於窗結束, 與負載無關
 describe('unit-WServWebdataClient', function() {
 
     //fdTmp, 本測試暫存檔之專用資料夾, 測完即刪
@@ -158,7 +162,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R42: 綁定完成前收到之同步廣播須略過, 綁定後仍須載入資料(行為鎖定: 原方案以空資料結束pm會使該表一直是空表)
         it('綁定完成前收到同步廣播時, 綁定後仍載入資料且不發出錯誤', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let tabA = evem()
             let srv = evem()
             srv = new WServWebdataServer(srv, {
@@ -176,31 +180,37 @@ describe('unit-WServWebdataClient', function() {
                 srv.clearBroadcast()
             })
             let nTok = 0
-            let log = run(linkServer(srv), {
+            let log = null
+            log = run(linkServer(srv), {
                 getToken: () => {
                     nTok++
                     //w-serv-broadcast 1.1.11起輪詢每輪亦呼叫getToken: 第1次為首輪輪詢(約2秒時), 第2次才是其後的取函數清單
                     if (nTok === 2) {
-                        return sleep(3500).then(() => 'tok') //取函數清單變慢, 其間後端資料變更並經第2輪輪詢送達(綁定前, 應被略過而於綁定後以時間戳同步)
+                        //取函數清單變慢: 其結果等到前端收到(並略過)推播才放行, 使「推播於綁定完成前送達」由因果而非時間決定(原以sleep(3500)與setTimeout 2400排序, 負載下可能顛倒)
+                        return log.tr.wait({ type: 'deliver', name: 'broadcast' }).then(() => 'tok')
                     }
                     return 'tok'
                 },
             })
-            setTimeout(() => {
+            //首輪輪詢成功(openOnce已派發, 取函數清單正等待token)後後端資料變更, 推播經其後之輪詢送達(綁定前, 應被略過而於綁定後以時間戳同步)
+            log.tr.wait({ type: 'deliver', name: 'openOnce' }).then(() => {
                 tabA.emit('change')
-            }, 2400)
-            await sleep(7500)
+            })
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //綁定後依當下時間戳同步一次完成
+            let iBc = log.tr.events.findIndex((e) => e.type === 'deliver' && e.name === 'broadcast')
+            let iBind = log.tr.events.findIndex((e) => e.type === 'hook' && e.name === 'getServerMethods')
+            assert.ok(iBc >= 0 && iBc < iBind, '推播於綁定完成之前送達')
             assert.strict.deepEqual(log.recv.filter((v) => v.tableName === 'tabA').map((v) => v.data.length), [1], JSON.stringify(log.recv))
             assert.strict.deepEqual(log.errors, [])
         })
 
         //R43: 已綁定而同步表缺select或缺表時, 以reject結束pm: 不提交空資料、不推進時間戳(再收到同一時間戳時重試), 由w-sync-webdata發出一則帶表名與時間戳之error, 該次updateTableTags照常完成(原以空資料結束而清空該表並記下時間戳)
         it('已綁定而同步表缺select或缺表時, pm以reject結束且不推進時間戳', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let called = []
             let log1 = run(linkFake({ funcs: ['tabA.insert'], tags: { tabA: 't1' }, called }))
             let log2 = run(linkFake({ funcs: ['tabB.select'], tags: { tabX: 't1' }, called }))
-            await sleep(3000)
+            await Promise.all([log1, log2].map((v) => v.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }))) //首次同步批次完成(error事件先於其排定)
             assert.strict.deepEqual(log1.recv, [])
             assert.strict.deepEqual(log1.rawErrors, [{ msg: 'can not get table data: tabA', err: 'kpExec[tabA].select is not a function', tableName: 'tabA', timeTag: 't1' }])
             assert.strict.equal(log1.after, 1)
@@ -208,7 +218,7 @@ describe('unit-WServWebdataClient', function() {
             assert.strict.deepEqual(log2.rawErrors, [{ msg: 'can not get table data: tabX', err: 'invalid kpExec[tabX]', tableName: 'tabX', timeTag: 't1' }])
             assert.strict.equal(log2.after, 1)
             await log1.cl.updateTableTags({ tabA: 't1' })
-            await sleep(50)
+            await log1.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }, 2) //第2批次完成(error事件先於其排定)
             assert.strict.equal(log1.rawErrors.length, 2, '時間戳未推進, 再收到同一時間戳時重試')
             assert.strict.equal(log1.after, 2)
             assert.strict.deepEqual(called, [])
@@ -216,7 +226,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R47: select失敗(例如授權拒絕)時不提交空資料、不推進時間戳並發出error, 再收到同一時間戳時重抓(原以空資料結束而清空該表, 到該表下次變動前不重抓, 且只console.log)
         it('select失敗時不清空資料且不推進時間戳, 再收到同一時間戳時重抓', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let called = []
             let nFail = 1
             let fail = () => {
@@ -227,12 +237,12 @@ describe('unit-WServWebdataClient', function() {
                 return null
             }
             let log = run(linkFake({ funcs: ['tabA.select'], tags: { tabA: 't1' }, called, fail }))
-            await sleep(3000)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成(error事件先於其排定)
             assert.strict.deepEqual(log.recv, [])
             assert.strict.deepEqual(log.rawErrors, [{ msg: 'can not get table data: tabA', err: 'permission denied', tableName: 'tabA', timeTag: 't1' }])
             assert.strict.equal(log.after, 1)
             await log.cl.updateTableTags({ tabA: 't1' })
-            await sleep(50)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }, 2) //第2批次完成(getData先於其排定)
             assert.strict.deepEqual(log.recv, [{ tableName: 'tabA', data: [{ id: 'row-of-tabA.select' }] }])
             assert.strict.equal(log.rawErrors.length, 1)
             assert.strict.equal(log.after, 2)
@@ -241,7 +251,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R44: 使用端回調函數拋錯時改發出error, 同步照常完成
         it('回調函數拋錯時改發出error且同步照常完成', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let called = []
             let log = run(linkFake({ funcs: ['tabA.select'], tags: { tabA: 't1' }, called }), {
                 getServerMethods: () => {
@@ -251,7 +261,7 @@ describe('unit-WServWebdataClient', function() {
                     throw new Error('boomRefreshTable')
                 },
             })
-            await sleep(3000)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成
             assert.strict.deepEqual(log.recv, [{ tableName: 'tabA', data: [{ id: 'row-of-tabA.select' }] }])
             assert.strict.deepEqual(log.errors, ['boomServerMethods', 'boomRefreshTable'])
             assert.strict.equal(log.after, 1)
@@ -268,7 +278,9 @@ describe('unit-WServWebdataClient', function() {
             let log = run(cl, extraHooks())
             log.cl.clearBroadcast()
             log.cl.clearSync()
-            await sleep(2600)
+            assert.strict.equal(log.tr.count({ type: 'stop' }), 1, '停止事件') //肯定部分以事件判定
+            await sleep(2600) //否定觀察窗(窗長大於輪詢間隔2秒; 缺陷版之輪詢計時器到期早於窗結束, 其請求同步送出, 與負載無關)
+            assert.strict.equal(log.tr.count({ type: 'tick' }), 0, '停止後輪詢計時器不再觸發')
             assert.strict.deepEqual(sent, [])
             assert.strict.deepEqual(log.hooks, zeros())
             assert.strict.equal(log.nToken, 0)
@@ -277,7 +289,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 停止後不再呼叫回調函數、不再送出本套件之請求(建議w-serv-webdata修正.md之實測一: 原於openOnce內停止後, 取得函數清單回來時仍呼叫getServerMethods並續取時間戳)
         it('openOnce內停止時不呼叫getServerMethods、不再送出本套件之請求且不發出error', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl({ delay: { '[sys:getFuncList]': 200 } })
             let log = run(cl, extraHooks())
             let nSent = null
@@ -286,7 +298,8 @@ describe('unit-WServWebdataClient', function() {
                 log.cl.clearSync()
                 nSent = sent.length
             })
-            await sleep(3500)
+            await log.tr.wait({ type: 'execEnd', func: '[sys:getFuncList]' }) //停止後才回到之函數清單
+            await drain()
             assert.strict.equal(nSent, 2, '停止時取得函數清單已送出(本套件之openOnce監聽先於使用端者)')
             assert.strict.deepEqual(sent, ['[sys:polling]', '[sys:getFuncList]'], '其後不再送出取時間戳與select')
             assert.strict.equal(log.fapi, null)
@@ -297,7 +310,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: getServerMethods內停止者, 不再送出取時間戳之請求(原於綁定後照常續取)
         it('getServerMethods內停止時不再送出取時間戳之請求', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl()
             let c = null
             let log = run(cl, {
@@ -308,7 +321,8 @@ describe('unit-WServWebdataClient', function() {
                 },
             })
             c = log.cl
-            await sleep(3000)
+            await log.tr.wait({ type: 'hook', name: 'getServerMethods' }) //於其內停止; 缺陷版於同一微任務鏈接著送出取時間戳
+            await drain()
             assert.strict.deepEqual(sent, ['[sys:polling]', '[sys:getFuncList]'])
             assert.strict.deepEqual(log.hooks, { ...zeros(), getServerMethods: 1 })
             assert.strict.equal(log.nToken, 1, '不再為取時間戳呼叫getToken')
@@ -317,20 +331,17 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 停止後才失敗之請求不發出error(建議w-serv-webdata修正.md之實測二: 原於停止後仍發出本套件之error)
         it('取時間戳之請求於停止後失敗時不發出error', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl({ delay: { '[sys:getTableTags]': 300 }, fail: { '[sys:getTableTags]': 'connect ECONNREFUSED' } })
             let c = null
-            let log = run(cl, {
-                ...extraHooks(),
-                getServerMethods: () => {
-                    setTimeout(() => {
-                        c.clearBroadcast() //取時間戳已送出, 於其在途時停止
-                        c.clearSync()
-                    }, 50)
-                },
-            })
+            let log = run(cl, extraHooks())
             c = log.cl
-            await sleep(3500)
+            log.tr.wait({ type: 'exec', func: '[sys:getTableTags]' }).then(() => {
+                c.clearBroadcast() //取時間戳已送出, 於其在途時停止(以請求送出為準, 不以等待毫秒)
+                c.clearSync()
+            })
+            await log.tr.wait({ type: 'execEnd', func: '[sys:getTableTags]' }) //停止後才失敗
+            await drain()
             assert.strict.deepEqual(sent, ['[sys:polling]', '[sys:getFuncList]', '[sys:getTableTags]'])
             assert.strict.deepEqual(log.hooks, { ...zeros(), getServerMethods: 1 })
             assert.strict.equal(log.nToken, 2)
@@ -339,19 +350,16 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 停止由clearBroadcast或clearSync任一者觸發; 只呼叫clearBroadcast時, 停止後才回到之時間戳不再交付同步(原會續取select並呼叫recvData)
         it('只呼叫clearBroadcast時, 停止後才回到之時間戳不再交付同步', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl({ delay: { '[sys:getTableTags]': 300 } })
             let c = null
-            let log = run(cl, {
-                ...extraHooks(),
-                getServerMethods: () => {
-                    setTimeout(() => {
-                        c.clearBroadcast()
-                    }, 50)
-                },
-            })
+            let log = run(cl, extraHooks())
             c = log.cl
-            await sleep(3500)
+            log.tr.wait({ type: 'exec', func: '[sys:getTableTags]' }).then(() => {
+                c.clearBroadcast() //取時間戳已送出, 於其在途時停止(以請求送出為準, 不以等待毫秒)
+            })
+            await log.tr.wait({ type: 'execEnd', func: '[sys:getTableTags]' }) //停止後才回到
+            await drain()
             assert.strict.deepEqual(sent, ['[sys:polling]', '[sys:getFuncList]', '[sys:getTableTags]'])
             assert.strict.deepEqual(log.hooks, { ...zeros(), getServerMethods: 1 })
             assert.strict.equal(log.nToken, 2, '不再為select呼叫getToken')
@@ -360,7 +368,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 同步表之select在途時停止, 其後之結果不呼叫回調函數亦不發出本套件之error; 兩者皆呼叫時由w-sync-webdata之clearSync不再提交(行為鎖定), 只呼叫clearBroadcast時由本套件之回調閘門擋下(原會呼叫recvData), 失敗則由仍運作之w-sync-webdata發出帶表名之error(行為鎖定: 下層之事件依其停止函數)
         it('select在途時停止, 其後之結果不呼叫回調函數亦不發出本套件之error', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let cases = [
                 { name: '兩者皆呼叫且select成功', stops: ['clearBroadcast', 'clearSync'], fail: {}, errors: [] },
                 { name: '兩者皆呼叫且select失敗', stops: ['clearBroadcast', 'clearSync'], fail: { 'tabA.select': 'connect ECONNREFUSED' }, errors: [] },
@@ -370,21 +378,19 @@ describe('unit-WServWebdataClient', function() {
             let logs = cases.map(({ stops, fail }) => {
                 let { cl, sent } = linkCtl({ delay: { 'tabA.select': 300 }, fail })
                 let c = null
-                let log = run(cl, {
-                    ...extraHooks(),
-                    getRefreshTable: () => {
-                        setTimeout(() => {
-                            for (let k of stops) {
-                                c[k]() //select已送出, 於其在途時停止
-                            }
-                        }, 50)
-                    },
-                })
+                let log = run(cl, extraHooks())
                 c = log.cl
                 log.sent = sent
+                log.tr.wait({ type: 'exec', func: 'tabA.select' }).then(() => {
+                    for (let k of stops) {
+                        c[k]() //select已送出, 於其在途時停止(以請求送出為準, 不以等待毫秒)
+                    }
+                })
                 return log
             })
-            await sleep(3500)
+            await Promise.all(logs.map((log) => log.tr.wait({ type: 'execEnd', func: 'tabA.select' }))) //停止後才回到
+            await Promise.all(logs.map((log, i) => (cases[i].errors.length > 0 ? log.tr.wait({ type: 'error' }, cases[i].errors.length) : null))) //只clearBroadcast時由仍運作之w-sync-webdata發出之error
+            await drain()
             cases.forEach(({ name, errors }, i) => {
                 let log = logs[i]
                 assert.strict.deepEqual(log.sent, ['[sys:polling]', '[sys:getFuncList]', '[sys:getTableTags]', 'tabA.select'], name)
@@ -396,11 +402,12 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 只呼叫clearSync時(輪詢續行), 其後之openOnce不啟動取得函數清單之流程(原會取得函數清單並呼叫getServerMethods)
         it('只呼叫clearSync時, 其後之openOnce不啟動取得函數清單之流程', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl()
             let log = run(cl, extraHooks())
             log.cl.clearSync()
-            await sleep(2600)
+            await log.tr.wait({ type: 'deliver', name: 'openOnce' }) //輪詢首輪成功, openOnce已派發給仍作用之監聽(本套件之監聽已移除)
+            await drain()
             assert.strict.deepEqual(sent, ['[sys:polling]'], '輪詢續行, 但不送出本套件之請求')
             assert.strict.deepEqual(log.hooks, zeros())
             assert.strict.equal(log.nToken, 0)
@@ -409,17 +416,18 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 只呼叫clearBroadcast而使用端自行呼叫updateTableTags時, 本套件之監聽已移除而不送出select, 由w-sync-webdata以無監聽者結束並發出一則帶表名之error(原會送出select並呼叫recvData)
         it('只呼叫clearBroadcast後使用端自行呼叫updateTableTags時, 不送出select且不呼叫recvData', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl()
             let log = run(cl, extraHooks())
-            await sleep(2600)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成
             assert.strict.deepEqual(log.recv, [{ tableName: 'tabA', data: [{ id: 'row-of-tabA.select' }] }])
             log.cl.clearBroadcast()
             let n = sent.length
             let hooks = { ...log.hooks }
             let nToken = log.nToken
             await log.cl.updateTableTags({ tabA: 't2' })
-            await sleep(50)
+            await log.tr.wait({ type: 'error' }) //w-sync-webdata以無監聽者結束而發出之error(1ms脫勾派發)
+            await drain()
             assert.strict.equal(sent.length, n, '不送出select')
             assert.strict.deepEqual(log.hooks, hooks, '不呼叫任何回調函數')
             assert.strict.equal(log.nToken, nToken, '不呼叫getToken')
@@ -428,7 +436,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: getRefreshTable內停止時不送出select(停止於本套件之refreshTable監聽派發中, 監聽雖已移除仍走完本次), 以字串拒絕而由w-sync-webdata發出帶表名之error; 只呼叫clearBroadcast使w-sync-webdata仍作用時方可觀察
         it('getRefreshTable內停止時不送出select', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl()
             let c = null
             let log = run(cl, {
@@ -438,7 +446,8 @@ describe('unit-WServWebdataClient', function() {
                 },
             })
             c = log.cl
-            await sleep(2600)
+            await log.tr.wait({ type: 'error' }) //refreshTable以停止之拒絕值結束, w-sync-webdata發出帶表名之error(1ms脫勾派發)
+            await drain()
             assert.strict.deepEqual(sent, ['[sys:polling]', '[sys:getFuncList]', '[sys:getTableTags]'], '不送出select')
             assert.strict.deepEqual(log.hooks, { ...zeros(), getServerMethods: 1, getRefreshState: 1, getRefreshTable: 1, getBeforeUpdateTableTags: 1 })
             assert.strict.equal(log.nToken, 2, '不為select呼叫getToken')
@@ -447,14 +456,15 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 使用端之openOnce監聽先於本套件註冊(例如w-serv-hapi於useWaitToken=true時, 通訊物件先於本套件建立)而於其中停止時, 本套件之openOnce監聽雖已移除仍於本次派發被呼叫(eventemitter3依派發開始時之清單), 須不啟動取得函數清單
         it('使用端之openOnce監聽先於本套件註冊而於其中停止時, 不送出取得函數清單', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl, sent } = linkCtl()
             cl.on('openOnce', () => {
                 cl.clearBroadcast() //建構後才被呼叫, 此時為本套件包裝後之函數
                 cl.clearSync()
             })
             let log = run(cl, extraHooks())
-            await sleep(2600)
+            await log.tr.wait({ type: 'deliver', name: 'openOnce' }) //首輪輪詢成功, 使用端之監聽於此次派發中停止, 本套件之監聽雖已移除仍於本次被呼叫
+            await drain()
             assert.strict.deepEqual(sent, ['[sys:polling]'])
             assert.strict.deepEqual(log.hooks, zeros())
             assert.strict.equal(log.nToken, 0, '不為取得函數清單呼叫getToken')
@@ -464,31 +474,48 @@ describe('unit-WServWebdataClient', function() {
         //R55: 停止時尚在等待getToken之本套件請求不送出: 尚未交給通訊物件, 送不送由本套件決定(原於token回來後照常送出, 伺服器已停時觸發通訊物件之重試與逐次error)
         it('停止時尚在等待getToken之本套件請求不送出', async function() {
             this.timeout(20000)
-            let getToken = () => sleep(300).then(() => 'tok')
+            //mkGetToken, 取得token需300ms(測試替身之延遲, 非同步點); 第n次呼叫之token回來時記一則{ type: 'tokenEnd', n }(getTr()為該前端之事件記錄器), onCall(n)於呼叫當下(尚未回傳)執行
+            let mkGetToken = (getTr, onCall = null) => {
+                let k = 0
+                return () => {
+                    let n = ++k
+                    if (onCall !== null) {
+                        onCall(n)
+                    }
+                    return sleep(300).then(() => {
+                        getTr().onTrace({ type: 'tokenEnd', n })
+                        return 'tok'
+                    })
+                }
+            }
 
             //取得函數清單等待token時停止: 本套件之openOnce監聽先註冊, 已在等待token
             let a = linkCtl()
-            let la = run(a.cl, { ...extraHooks(), getToken })
+            let la = run(a.cl, { ...extraHooks(), getToken: mkGetToken(() => la.tr) })
             la.cl.on('openOnce', () => {
                 la.cl.clearBroadcast()
                 la.cl.clearSync()
             })
 
-            //同步表之select等待token時停止
+            //同步表之select等待token時停止: getRefreshTable之後緊接著呼叫getToken取select之token, 於該次getToken內停止(getToken尚未回傳, 請求必在等待token)
             let b = linkCtl()
             let lb = null
+            let kSel = null
             lb = run(b.cl, {
                 ...extraHooks(),
-                getToken,
-                getRefreshTable: () => {
-                    setTimeout(() => {
+                getToken: mkGetToken(() => lb.tr, (n) => {
+                    if (kSel === null && lb.hooks.getRefreshTable === 1) {
+                        kSel = n //本次呼叫之序號
                         lb.cl.clearBroadcast()
                         lb.cl.clearSync()
-                    }, 100)
-                },
+                    }
+                }),
             })
 
-            await sleep(3800)
+            await la.tr.wait({ type: 'tokenEnd', n: 2 }) //取得函數清單之token回來(第1次為輪詢)
+            await lb.tr.until(() => kSel !== null)
+            await lb.tr.wait({ type: 'tokenEnd', n: kSel }) //select之token回來
+            await drain()
             assert.strict.deepEqual(a.sent, ['[sys:polling]'], '不送出取得函數清單')
             assert.strict.deepEqual(la.hooks, zeros())
             assert.strict.equal(la.nToken, 1, '停止前已開始等待token')
@@ -505,13 +532,17 @@ describe('unit-WServWebdataClient', function() {
             this.timeout(20000)
             let { cl } = linkCtl()
             let c = null
+            let log = null
             let logged = []
             let consoleError = console.error
             console.error = (...args) => {
                 logged.push(args)
+                if (log !== null) {
+                    log.tr.onTrace({ type: 'console', label: args[0] })
+                }
             }
             try {
-                let log = run(cl, {
+                log = run(cl, {
                     recvData: () => {
                         c.clearBroadcast()
                         c.clearSync()
@@ -519,7 +550,8 @@ describe('unit-WServWebdataClient', function() {
                     },
                 })
                 c = log.cl
-                await sleep(2600)
+                await log.tr.wait({ type: 'console', label: '[w-serv-webdata] callback error after stop' }) //停止後才拋錯, 改以console.error輸出
+                await drain()
                 let mine = logged.filter((v) => v[0] === '[w-serv-webdata] callback error after stop')
                 assert.strict.deepEqual(log.rawErrors, [])
                 assert.strict.equal(mine.length, 1)
@@ -533,10 +565,10 @@ describe('unit-WServWebdataClient', function() {
 
         //R50: 停止只涵蓋本套件自身之流程, 使用端自行呼叫之函數照常(對稱伺服端: 停止廣播與同步後資料通道照常至通訊服務停止); 停止函數可重複且依任意順序呼叫(行為鎖定)
         it('停止後使用端仍可呼叫函數, 停止函數可重複且依任意順序呼叫', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl } = linkCtl()
             let log = run(cl)
-            await sleep(2600)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成(已綁定)
             log.cl.clearSync()
             log.cl.clearBroadcast()
             log.cl.clearBroadcast()
@@ -550,19 +582,19 @@ describe('unit-WServWebdataClient', function() {
 
         //R52: 停止時移除本套件掛於通訊物件之監聽(掛的人負責移除), 下層皆允許停止後於同一事件物件重建; 原未移除而舊實體之監聽仍作用(修正前: 舊實體之回調照常被呼叫; 僅加停止閘門時: 舊實體之refreshTable監聽先註冊而拒絕新實體之取資料, 新實體同步失敗)
         it('停止後可於同一通訊物件重建, 舊實體之監聽已移除而不作用', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let { cl } = linkCtl()
             let names = ['openOnce', 'broadcast', 'refreshState', 'refreshTable', 'getData', 'beforeUpdateTableTags', 'afterUpdateTableTags']
             let n0 = names.map((k) => cl.listenerCount(k))
             let log1 = run(cl, extraHooks())
-            await sleep(2600)
+            await log1.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成
             assert.strict.equal(log1.recv.length, 1)
             log1.cl.clearBroadcast()
             log1.cl.clearSync()
             assert.strict.deepEqual(names.map((k) => cl.listenerCount(k)), n0, '停止後本套件之監聽已移除')
             let hooks1 = { ...log1.hooks }
             let log2 = run(cl, extraHooks())
-            await sleep(2600)
+            await log2.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //重建之實體首次同步批次完成
             assert.strict.deepEqual(log2.recv, [{ tableName: 'tabA', data: [{ id: 'row-of-tabA.select' }] }], '重建之實體照常同步')
             assert.strict.deepEqual(log1.hooks, hooks1, '舊實體之回調不再被呼叫')
             assert.strict.deepEqual(log2.rawErrors, [])
@@ -570,7 +602,7 @@ describe('unit-WServWebdataClient', function() {
 
         //R51: 伺服端只呼叫clearBroadcast而未停止通訊服務時, 前端之輪詢由資料通道回應invalid token; w-serv-broadcast 1.1.8起前端驗證輪詢回應須為陣列, 故每輪發出輪詢失敗之error(1.1.7為靜默略過), 且收不到推播(WServWebdataServer之JSDoc第9點)
         it('伺服端只呼叫clearBroadcast而未停止通訊服務時, 前端每輪發出輪詢失敗之error且收不到推播', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let tabA = evem()
             let srv = new WServWebdataServer(evem(), {
                 fpTableTags: `${fdTmp}/halfstop.json`,
@@ -588,11 +620,11 @@ describe('unit-WServWebdataClient', function() {
                 srv.clearSync()
             })
             let log = run(linkServer(srv))
-            await sleep(2600)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成
             assert.strict.equal(log.recv.length, 1)
             srv.clearBroadcast()
             tabA.emit('change')
-            await sleep(4500)
+            await log.tr.wait({ type: 'error' }, 2) //其後之輪詢每輪失敗(至少2輪), 期間收不到推播
             assert.strict.equal(log.recv.length, 1, '收不到推播')
             assert.ok(log.rawErrors.length >= 2, `每輪發出error: ${JSON.stringify(log.rawErrors)}`)
             for (let err of log.rawErrors) {
@@ -606,21 +638,23 @@ describe('unit-WServWebdataClient', function() {
 
         //R17: 前端把getToken交w-serv-broadcast前端(1.1.11起opt.getToken), 輪詢輸入為{ clientId, __sysToken__ }(非資料通道之協定), 供伺服端opt.verifyPolling反查身分; 修前輪詢輸入恰為{ clientId }
         it('輪詢輸入帶getToken之值(每輪重新取得, sync與async皆可, 非字串取空字串, 未給取空字串)', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let n = 0
             let a = linkCtl() //sync, 每次呼叫回傳不同值
-            run(a.cl, { getToken: () => `tok${++n}` })
+            let la = run(a.cl, { getToken: () => `tok${++n}` })
             let b = linkCtl() //async
-            run(b.cl, { getToken: async () => 'tokAsync' })
+            let lb = run(b.cl, { getToken: async () => 'tokAsync' })
             let c = linkCtl() //非字串
-            run(c.cl, { getToken: () => undefined })
+            let lc = run(c.cl, { getToken: () => undefined })
             let d = linkCtl() //未給getToken(預設), 不經run(其會包裝getToken)
-            let cld = new WServWebdataClient(d.cl, { getServerMethods: () => {}, recvData: () => {} })
+            let trD = genTracer()
+            let cld = new WServWebdataClient(d.cl, { getServerMethods: () => {}, recvData: () => {}, onTrace: trD.onTrace })
             cleans.push(() => {
                 cld.clearBroadcast()
                 cld.clearSync()
             })
-            await sleep(4600) //輪詢間隔2秒, 至少2輪
+            //輪詢至少2輪: 等第2輪之結果(輪詢間隔2秒), 不以等待毫秒
+            await Promise.all([la.tr, lb.tr, lc.tr, trD].map((tr) => tr.wait({ type: 'result', n: 2 })))
 
             let polls = (x) => {
                 return x.inputs.filter((v, i) => x.sent[i] === '[sys:polling]')
@@ -653,10 +687,10 @@ describe('unit-WServWebdataClient', function() {
 
         //R39: 綁定與取值只沿自有屬性, 不寫入Object.prototype之內建函數, 字面鍵不遮蔽路徑
         it('綁定只沿自有屬性, 同步依路徑取得正確之select', async function() {
-            this.timeout(20000)
+            this.timeout(60000)
             let called = []
             let log = run(linkFake({ funcs: ['toString.select', '["a.b"].other', 'a.b.select'], tags: { 'toString': 't1', 'a.b': 't2' }, called }))
-            await sleep(3000)
+            await log.tr.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成
             try {
                 assert.strict.equal(Object.prototype.toString.select, undefined, '未寫入Object.prototype.toString')
                 assert.strict.equal(typeof log.fapi['a.b'].other, 'function')

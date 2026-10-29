@@ -6,8 +6,11 @@ import WConverhpServer from 'w-converhp/src/WConverhpServer.mjs'
 import WConverhpClient from 'w-converhp/src/WConverhpClient.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
+import { genTracer, drain } from './tools/tracer.mjs'
 
 
+//同步以事件而非等待毫秒: 伺服器就緒等WConverhpServer之ready(w-converhp 2.1.12起), 前端同步與停止等recvData被呼叫之事件(其內停止並拋錯, 診斷輸出於同一呼叫堆疊內完成);
+//  之後讓已排定之微任務與1ms脫勾派發跑完(drain)再斷言「全部console輸出不含敏感值」
 //以真WConverhpServer與WConverhpClient經HTTP驗證診斷輸出(與unit-diaglog互補: 整個連線過程〔取函數清單、輪詢、同步、取資料〕中, 本行程所有console輸出皆不含使用者id、資料列之值、token與錯誤原文; 回傳與同步結果不變)
 //  情境: 前端同步取得資料後, recvData於自身內停止並拋出夾帶使用者id、資料值與本體token之錯誤(停止後才拋錯, 走診斷輸出)
 //  三組: 預設(只輸出標籤與摘要)、funLog(收完整細節, token遮罩)、logDetail(還原舊輸出, token遮罩)
@@ -31,23 +34,6 @@ describe('api-diaglog', function() {
 
     //LABEL, 前端停止後回調拋錯之標籤
     let LABEL = '[w-serv-webdata] callback error after stop'
-
-    let sleep = (ms) => {
-        return new Promise((resolve) => {
-            setTimeout(resolve, ms)
-        })
-    }
-
-    //waitFor, 條件成立時結束, 逾時則拋錯(綁定約需2.x秒)
-    let waitFor = async(fn, ms = 20000, label = '') => {
-        let t = Date.now()
-        while (!fn()) {
-            if (Date.now() - t > ms) {
-                throw new Error(`waitFor timeout ${label}`)
-            }
-            await sleep(50)
-        }
-    }
 
     before(function() {
         fs.mkdirSync(fdTmp, { recursive: true })
@@ -78,20 +64,21 @@ describe('api-diaglog', function() {
     //session, 起真伺服端與前端, 前端recvData於首次收到資料時停止並拋錯, 等診斷輸出出現後以$fapi再取一次資料, 停止並回傳{ logged, recv, again, srvFunLog }
     let session = async({ port, optClient = {}, optServer = {} }) => {
         let { logged, restore } = capture()
+        let tr = genTracer()
         let recv = []
         let again = null
         let srv = null
         let cl = null
         try {
             let ev = evem()
-            srv = new WConverhpServer({
+            let wsv = new WConverhpServer({
                 port,
                 pathUploadTemp: `${fdTmp}/uploadTemp-${port}`,
                 verifyConn: async({ authorization }) => {
                     return authorization === `Bearer ${HDR}`
                 },
             })
-            srv = new WServWebdataServer(srv, {
+            srv = new WServWebdataServer(wsv, {
                 fpTableTags: `${fdTmp}/tags-${port}.json`,
                 sysFuncsPublic: ['[sys:getFuncList]'],
                 getUserIdByToken: async(token) => {
@@ -109,7 +96,7 @@ describe('api-diaglog', function() {
                 ...optServer,
             })
             srv.on('error', () => {})
-            await sleep(300)
+            assert.strict.equal(await wsv.ready, true, '伺服器已就緒') //w-converhp 2.1.12起ready恆resolve, 啟動失敗為false
 
             let fapi = null
             let c = null
@@ -124,18 +111,17 @@ describe('api-diaglog', function() {
                     recv.push(r)
                     c.clearBroadcast()
                     c.clearSync()
+                    tr.onTrace({ type: 'recv' }) //診斷輸出於本函數拋錯後同一呼叫堆疊內完成, 等此事件之續行必見之
                     throw new Error(`${TEXT} uid=${UID} data=${JSON.stringify(r.data)} token=${BODY}`)
                 },
+                onTrace: tr.onTrace,
                 ...optClient,
             })
             c = cl
             cl.on('error', () => {})
 
-            let done = () => {
-                return recv.length >= 1 && (logged.error.some((v) => v[0] === LABEL) || (optClient.funLog && optClient.funLog.calls.length >= 1))
-            }
-            await waitFor(done, 20000, 'diag')
-            await sleep(500)
+            await tr.wait({ type: 'recv' })
+            await drain(3) //停止後在途之請求與已排定之派發跑完, 其間之console輸出亦在擷取範圍
 
             //停止後使用端自行呼叫之函數照常(契約不變)
             again = await fapi.tabA.select()
@@ -150,7 +136,7 @@ describe('api-diaglog', function() {
                 srv.clearSync()
                 await srv.stop()
             }
-            await sleep(300)
+            await drain(3) //停止後已排定之派發跑完, 其console輸出仍在擷取範圍
             restore()
         }
         return { logged, recv, again }

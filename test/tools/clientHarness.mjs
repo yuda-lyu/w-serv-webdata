@@ -1,7 +1,14 @@
 import evem from 'wsemi/src/evem.mjs'
+import { genTracer, flush, drain } from './tracer.mjs'
 
 
 //前端測試共用之輔助(不帶.test., 不被runner當測試檔), 前端時序測試以記憶體假通訊層相連(不開埠)
+//同步一律以事件而非等待毫秒(規格: dspec/計時器相關函數之觀察回調與測試.md): run所建之前端把opt.onTrace(轉交w-serv-broadcast前端)與測試輔助自身之事件記入同一個tracer(log.tr), 測試以log.tr.wait等第N個事件
+//  輔助自身之事件(type與w-serv-broadcast之start、tick、request、result、stop、emit、deliver、report不重名):
+//    hook(name): 使用端之回調函數(hookNames)被呼叫, 於呼叫前記錄(故回調內停止者, 等此事件之續行必見停止之結果)
+//    error: 前端之error事件到達使用端監聽
+//    exec(func)、execEnd(func): 假通訊層(linkCtl、linkSig)收到請求(已記入sent)、回應該請求(於其回傳之promise settle之前一刻); 假通訊層另掛__subs(訂閱者), run為所建之前端訂閱, 使log.tr收到其後之exec與execEnd(同一通訊物件重建者各有自己的log.tr)
+//  不對getToken與execute回傳之promise掛任何處理(掛了即視為已處理, 會掩蓋本套件漏接rejection之缺陷), 非同步之結束由假通訊層自身或測試自己的getToken實作記錄
 //假通訊層兩種並存, 代表兩類通訊物件(見CLAUDE_rulebook.md之R11、R14):
 //  linkCtl: execute只取func、忽略第4參數, 代表不支援opt.signal之通訊物件(w-converhp 2.1.8之前、w-converws、w-conversi), 為停止閘門之觀察者, 既有〈停止〉各條一律用之
 //  linkSig: 依w-converhp 2.1.8之契約處理opt.signal, 中止之新行為用之
@@ -38,8 +45,13 @@ let zeros = () => {
 //genRun, 建立run: 建構前端並收集事件(rawErrors為error事件之原值, hooks為有給之回調函數之呼叫次數), 建構者記入cleans供測完停止
 let genRun = (WServWebdataClient, cleans) => {
     return (cl, opt = {}) => {
-        let log = { recv: [], errors: [], rawErrors: [], after: 0, fapi: null, cl: null, hooks: {} }
+        let log = { recv: [], errors: [], rawErrors: [], after: 0, fapi: null, cl: null, hooks: {}, tr: genTracer() }
+        let hasLink = Array.isArray(cl.__subs) //假通訊層(linkCtl、linkSig)自行記錄exec與execEnd, 轉給本前端之記錄器
+        if (hasLink) {
+            cl.__subs.push(log.tr.onTrace)
+        }
         let kp = {
+            onTrace: log.tr.onTrace,
             getToken: () => 'tok',
             getServerMethods: (r) => {
                 log.fapi = r
@@ -61,10 +73,15 @@ let genRun = (WServWebdataClient, cleans) => {
             log.nToken++
             return getToken(...args)
         }
+        //不對getToken與execute回傳之promise掛任何處理(掛了即視為已處理, 會掩蓋本套件漏接rejection之缺陷, 見unit-diaglog之無unhandledRejection斷言):
+        //  通訊物件的exec、execEnd事件由假通訊層自身記錄(linkCtl、linkSig); 自備之假通訊層(無__tr)只記exec
         let execute = cl.execute
         cl.execute = function(func, ...rest) {
             if (func === '[sys:polling]') {
                 log.nToken--
+            }
+            if (!hasLink) {
+                log.tr.onTrace({ type: 'exec', func })
             }
             return execute.call(this, func, ...rest)
         }
@@ -76,6 +93,7 @@ let genRun = (WServWebdataClient, cleans) => {
             log.hooks[k] = 0
             kp[k] = (...args) => {
                 log.hooks[k]++
+                log.tr.onTrace({ type: 'hook', name: k })
                 return fn(...args)
             }
         }
@@ -83,6 +101,7 @@ let genRun = (WServWebdataClient, cleans) => {
         cl.on('error', (err) => {
             log.rawErrors.push(err)
             log.errors.push(typeof err === 'string' ? err : String(err && err.message ? err.message : (err && err.msg) || err))
+            log.tr.onTrace({ type: 'error' })
         })
         cleans.push(() => {
             cl.clearBroadcast()
@@ -118,15 +137,29 @@ let genReply = ({ funcs, tags, fail, poll }) => {
 let linkCtl = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fail = {}, poll = () => [] } = {}) => {
     let sent = []
     let inputs = [] //與sent同序, 每次送出之輸入(第2參數)
+    //tr, 每次收到請求(已記入sent與inputs)記一則{ type: 'exec', func }, 回應時(回傳前一刻)記一則{ type: 'execEnd', func }, 供不經run之測試以tr.until等待sent、inputs之狀態條件;
+    //另轉給訂閱者(cl.__subs, run為其所建之前端訂閱, 同一通訊物件重建者各有自己的記錄器, 不混入舊實體之事件)
+    let tr = genTracer()
+    let subs = []
+    let emit = (e) => {
+        tr.onTrace(e)
+        for (let f of subs) {
+            f(e)
+        }
+    }
     let reply = genReply({ funcs, tags, fail, poll })
     let cl = evem()
+    cl.__subs = subs
     cl.execute = async (func, input) => {
         sent.push(func)
         inputs.push(input)
+        emit({ type: 'exec', func })
         await sleep(delay[func] !== undefined ? delay[func] : 5)
-        return reply(func)
+        let r = reply(func)
+        emit({ type: 'execEnd', func })
+        return r
     }
-    return { cl, sent, inputs }
+    return { cl, sent, inputs, tr }
 }
 
 
@@ -135,8 +168,18 @@ let linkCtl = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fai
 let linkSig = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fail = {}, poll = () => [] } = {}) => {
     let sent = []
     let sigs = []
+    //同linkCtl: 每次送出(已記入sent與sigs)記一則{ type: 'exec', func }, 回應或被中止時(settle前一刻)記一則{ type: 'execEnd', func }
+    let tr = genTracer()
+    let subs = []
+    let emit = (e) => {
+        tr.onTrace(e)
+        for (let f of subs) {
+            f(e)
+        }
+    }
     let reply = genReply({ funcs, tags, fail, poll })
     let cl = evem()
+    cl.__subs = subs
     cl.execute = (func, input, cbProgress, opt) => {
         let signal = opt && opt.signal ? opt.signal : null
         if (signal && signal.aborted) {
@@ -144,9 +187,11 @@ let linkSig = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fai
         }
         sent.push(func)
         sigs.push({ func, signal })
+        emit({ type: 'exec', func })
         return new Promise((resolve, reject) => {
             let onAbort = () => {
                 clearTimeout(t)
+                emit({ type: 'execEnd', func })
                 reject(signal.reason)
             }
             let t = setTimeout(() => {
@@ -155,15 +200,21 @@ let linkSig = ({ funcs = ['tabA.select'], tags = { tabA: 't1' }, delay = {}, fai
                 }
                 Promise.resolve()
                     .then(() => reply(func))
-                    .then(resolve, reject)
+                    .then((v) => {
+                        emit({ type: 'execEnd', func })
+                        resolve(v)
+                    }, (err) => {
+                        emit({ type: 'execEnd', func })
+                        reject(err)
+                    })
             }, delay[func] !== undefined ? delay[func] : 5)
             if (signal) {
                 signal.addEventListener('abort', onAbort)
             }
         })
     }
-    return { cl, sent, sigs }
+    return { cl, sent, sigs, tr }
 }
 
 
-export { sleep, hookNames, extraHooks, zeros, genRun, linkCtl, linkSig }
+export { sleep, flush, drain, hookNames, extraHooks, zeros, genRun, linkCtl, linkSig }

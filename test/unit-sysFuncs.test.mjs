@@ -5,9 +5,12 @@ import genPm from 'wsemi/src/genPm.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataServerExec from '../src/WServWebdataServerExec.mjs'
 import genPollingGate from '../src/genPollingGate.mjs'
+import { genTracer, flush, drain } from './tools/tracer.mjs'
 
 
 //以evem建構(不開網路), 模擬w-converhp派發execute事件, 驗證系統函數([sys:getFuncList]、[sys:getTableTags]、[sys:polling])之身分關卡:
+//同步以事件(mk所建之實體以opt.onTrace轉交w-serv-broadcast伺服端, 事件記於tr)而非等待毫秒: 請求結算後, 等本套件與w-serv-broadcast已排定之事件(1ms脫勾派發)皆送達(emit與deliver成對)、
+//  輪詢放行者等在線偵測發出該clientId之enter(早於clientEnter之排定); 見exec、poll
 //  依據: 使用者身分驗證原則(C:\opensrcOper\dspec\使用者身分驗證原則.md)第二節7「系統函數:只回公開資訊者(函數名稱清單)可公開, 會回資料或改變狀態者須身分」與第二節2「getUserIdByToken即驗證身分之步驟」;
 //  主控裁定Q1(②: 預設三者皆公開以相容已發布之前端元件〔輪詢不帶token〕, 嚴格設定為顯式只公開[sys:getFuncList]; 2026-10-24 webdata-run01-receipt)、Q2(輪詢經w-serv-broadcast 1.1.11之verifyPolling注入)、Q3(因無身分被拒時發error事件);任務修正輪範圍2、3
 //  規則帳本: R16(系統函數之身分關卡與sysFuncsPublic)、R17(輪詢之鉤子注入、略過與clientId歸屬)
@@ -32,12 +35,6 @@ describe('unit-sysFuncs', function() {
         }
         fs.rmSync(fdTmp, { recursive: true, force: true })
     })
-
-    let sleep = (ms) => {
-        return new Promise((resolve) => {
-            setTimeout(resolve, ms)
-        })
-    }
 
     //withTimeout, 回應懸置時以{ timeout: true }結束, 避免測試卡住
     let withTimeout = (pm, ms = 2000) => {
@@ -75,6 +72,18 @@ describe('unit-sysFuncs', function() {
         }
     }
 
+    //trOf, 各實體之事件記錄器(opt.onTrace轉交w-serv-broadcast伺服端者)
+    let trOf = new WeakMap()
+
+    //settleEmits, 等已排定之事件皆送達: 先讓出一個macrotask使請求結算後之微任務鏈(含排定事件)跑完, 再等emit與deliver成對, 最後drain讓同為1ms之其他派發跑完
+    let settleEmits = async (inst) => {
+        let tr = trOf.get(inst)
+        await flush()
+        await tr.until(() => tr.count({ type: 'emit' }) === tr.count({ type: 'deliver' }))
+        await drain() //同為1ms之計時器依建立順序觸發: 其後建立之計時器必晚於已排定者(含在線偵測的enter與其引發之派發), 與負載無關
+        await tr.until(() => tr.count({ type: 'emit' }) === tr.count({ type: 'deliver' }))
+    }
+
     //mk, 建立useDbOrm=true之實體(不同步); calls為getUserIdByToken收到之token, errs為error事件, enters為clientEnter事件, cnt記錄授權函數與operOrm之呼叫
     let mk = (optExt = {}) => {
         let calls = []
@@ -106,7 +115,9 @@ describe('unit-sysFuncs', function() {
         }
         let inst = evem()
         insts.push(inst)
-        new WServWebdataServer(inst, opt)
+        let tr = genTracer()
+        trOf.set(inst, tr)
+        new WServWebdataServer(inst, { onTrace: tr.onTrace, ...opt })
         inst.on('error', (e) => {
             errs.push(e)
         })
@@ -127,7 +138,7 @@ describe('unit-sysFuncs', function() {
         let pm = genPm()
         inst.emit('execute', func, { __sysToken__: token, __sysInputArgs__: args }, pm)
         let r = await withTimeout(pm)
-        await sleep(30) //error事件由w-serv-broadcast與本套件以1ms計時器派發
+        await settleEmits(inst) //error事件由w-serv-broadcast以1ms計時器脫勾派發(本套件經資料通道者同步派發)
         return r
     }
 
@@ -144,7 +155,12 @@ describe('unit-sysFuncs', function() {
         }, (err) => {
             return { ok: false, err }
         }))
-        await sleep(120) //clientEnter由w-serv-broadcast之在線偵測(偵測間隔50ms)發出, error事件亦以1ms計時器派發
+        //放行者(clientId有效)等在線偵測發出該clientId之enter(clientEnter由其排定, 1ms計時器於輪詢後建立, 早於偵測間隔50ms); 被拒絕者無enter
+        //例外: 名稱為Object.prototype之屬性者(constructor、toString、__proto__等)wsemi之alive以in判斷是否已在線而不發enter(下層行為, 非本套件), 改由settleEmits之drain涵蓋
+        if (r.ok === true && typeof clientId === 'string' && clientId !== '' && !(clientId in {})) {
+            await trOf.get(inst).wait({ type: 'alive', evType: 'enter', key: clientId })
+        }
+        await settleEmits(inst) //clientEnter、clientChange與error事件皆以1ms計時器脫勾派發
         return r
     }
 
@@ -555,10 +571,16 @@ describe('unit-sysFuncs', function() {
 
         //並發: 兩個身分同時以同一clientId輪詢, 恰一者綁定成功(檢查與綁定在反查之await之後同步執行)
         it('並發輪詢同一clientId時恰一個身分綁定成功', async function() {
+            //tokU1之反查等到tokU2之反查開始後才繼續(以因果而非等待毫秒排序, 使u2必先完成反查)
+            let u2Started = genPm()
             let { inst } = mk({
                 getUserIdByToken: async (token) => {
-                    await sleep(token === 'tokU1' ? 40 : 5)
-                    return token === 'tokU1' ? 'u1' : 'u2'
+                    if (token === 'tokU1') {
+                        await u2Started
+                        return 'u1'
+                    }
+                    u2Started.resolve(true)
+                    return 'u2'
                 },
             })
             let [a, b] = await Promise.all([poll(inst, 'cc', 'tokU1'), poll(inst, 'cc', 'tokU2')])
@@ -582,7 +604,7 @@ describe('unit-sysFuncs', function() {
             }), 20000).then((r) => {
                 assert.strict.deepEqual(r, { left: true }, '逾時後發出clientLeave')
             })
-            await sleep(30) //本套件之clientLeave監聽先於此測試掛上之監聽, 已解除
+            //本套件之clientLeave監聽先於此測試掛上之監聽, 已於同一次派發中解除綁定, 不需等待
             assert.strict.deepEqual(await poll(inst, 'cl', 'tokU2'), { ok: true, v: [] }, '逾時後另一身分可綁定')
         })
 
@@ -608,15 +630,17 @@ describe('unit-sysFuncs', function() {
 
         //genPollingGate單元: 反查期間停止者不綁定(w-serv-broadcast於停止後亦不處理其結果)
         it('genPollingGate: 反查期間停止者不綁定', async function() {
+            let release = genPm()
             let gate = genPollingGate({
                 getUserIdByToken: async () => {
-                    await sleep(20)
+                    await release //反查在途, 直到停止之後才放行(以因果而非等待毫秒)
                     return 'u1'
                 },
                 isPublic: false,
             })
             let pm = gate.verifyPolling({ clientId: 'c1', __sysToken__: 't' })
             gate.stop()
+            release.resolve(true)
             assert.strict.equal(await pm, 'stopped')
         })
 

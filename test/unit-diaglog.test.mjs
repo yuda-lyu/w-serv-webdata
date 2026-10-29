@@ -7,9 +7,11 @@ import evem from 'wsemi/src/evem.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
 import { getOptLog, getDiag, getBriefErr, genTokenBook, cpDetail } from '../src/getDiag.mjs'
-import { sleep, hookNames, genRun, linkCtl } from './tools/clientHarness.mjs'
+import { genTracer, flush, drain } from './tools/tracer.mjs'
+import { hookNames, genRun, linkCtl } from './tools/clientHarness.mjs'
 
 
+//同步以事件而非等待毫秒: 等回調被呼叫(log.tr之hook事件)、等通訊物件收到請求(linkCtl之tr)、等error事件(deliver或error事件)等; 肯定事件之後以drain讓診斷輸出與已排定之微任務、1ms脫勾派發跑完, 再斷言「無額外輸出」「無unhandledRejection」
 //診斷輸出(R18): 預設只輸出固定標籤與不含資料值之摘要, opt.logDetail還原完整細節, opt.funLog取代console收完整細節, token一律遮罩, 回傳與事件契約不變
 //本套件實際會執行之診斷輸出共2處: 前端callHook於停止後才拋錯(console.error), 伺服端instWConverServer非有效物件(console.log, 固定文字)
 describe('unit-diaglog', function() {
@@ -60,15 +62,15 @@ describe('unit-diaglog', function() {
         return { logged, restore }
     }
 
-    let waitFor = async(fn, ms = 10000) => {
-        let t = Date.now()
-        while (!fn()) {
-            if (Date.now() - t > ms) {
-                return false
-            }
-            await sleep(50)
+    //waitFor, 狀態條件成立時回傳true(於tr之每則事件後檢查); tr之防懸置上限內未成立則回傳false(上限只防懸置, 不表達規格)
+    let waitFor = async(fn, tr) => {
+        try {
+            await tr.until(fn)
+            return true
         }
-        return true
+        catch (err) {
+            return false
+        }
     }
 
     //mkErr, 內含id、資料值、token與原文之錯誤
@@ -109,9 +111,9 @@ describe('unit-diaglog', function() {
             let count = () => {
                 return logged.error.filter((v) => v[0] === LABEL).length + (opt.funLog && opt.funLog.calls ? opt.funLog.calls.length : 0)
             }
-            let ok = await waitFor(count)
-            assert.strict.equal(ok, true, '等待診斷輸出逾時')
-            await sleep(300)
+            await log.tr.wait({ type: 'hook', name: hook }) //該回調被呼叫(於自身內停止後拋錯, 診斷輸出於同一呼叫堆疊內完成)
+            assert.strict.equal(count() > 0, true, '診斷輸出未出現')
+            await drain(3) //其後之額外輸出(若有)亦在擷取範圍
             entries = logged.error.filter((v) => v[0] === LABEL)
         }
         finally {
@@ -244,9 +246,9 @@ describe('unit-diaglog', function() {
                     c = log.cl
                     logs.push(log)
                 }
-                let ok = await waitFor(() => logged.error.filter((v) => v[0] === LABEL).length >= hookNames.length, 20000)
-                assert.strict.equal(ok, true, '等待診斷輸出逾時')
-                await sleep(300)
+                await Promise.all(logs.map((log, i) => log.tr.wait({ type: 'hook', name: hookNames[i] }))) //各回調被呼叫(診斷輸出於同一呼叫堆疊內完成)
+                assert.strict.equal(logged.error.filter((v) => v[0] === LABEL).length >= hookNames.length, true, '診斷輸出未全部出現')
+                await drain(3)
             }
             finally {
                 restore()
@@ -486,7 +488,7 @@ describe('unit-diaglog', function() {
                     assert.strict.deepEqual(r.log.rawErrors, [])
                     assert.strict.deepEqual(r.log.hooks, base.log.hooks)
                 }
-                await sleep(300)
+                await drain(3) //funLog回傳之rejection已被吞下: 微任務與unhandledRejection之檢查皆已跑完
                 assert.strict.deepEqual(un, [])
             }
             finally {
@@ -620,9 +622,8 @@ describe('unit-diaglog', function() {
                         },
                         ...opt,
                     })
-                    let ok = await waitFor(() => log.rawErrors.length >= 1)
-                    assert.strict.equal(ok, true, '等待error事件逾時')
-                    await sleep(300)
+                    await log.tr.wait({ type: 'error' }) //回調拋錯改發出之error事件(同步派發, 於回調被呼叫當下)
+                    await drain(3) //其後之額外輸出(若有)亦在擷取範圍
                 }
                 finally {
                     restore()
@@ -642,7 +643,7 @@ describe('unit-diaglog', function() {
         it('getToken包裝只記錄: 呼叫次數與回傳值不變, 拋錯原樣向上', async function() {
             this.timeout(30000)
             let calls = 0
-            let { cl, inputs } = linkCtl()
+            let { cl, inputs, tr } = linkCtl()
             let c = new WServWebdataClient(cl, {
                 getToken: () => {
                     calls++
@@ -651,7 +652,7 @@ describe('unit-diaglog', function() {
                 getServerMethods: () => {},
                 recvData: () => {},
             })
-            let ok = await waitFor(() => inputs.length >= 3)
+            let ok = await waitFor(() => inputs.length >= 3, tr)
             assert.strict.equal(ok, true)
             c.clearBroadcast()
             c.clearSync()
@@ -676,7 +677,7 @@ describe('unit-diaglog', function() {
         it('getToken回傳thenable(函數型): 每個thenable之then恰呼叫一次, 實際送出之token不變', async function() {
             this.timeout(30000)
             let made = []
-            let { cl, inputs, sent } = linkCtl()
+            let { cl, inputs, sent, tr } = linkCtl()
             let c = new WServWebdataClient(cl, {
                 getToken: () => {
                     let th = function() {}
@@ -692,11 +693,11 @@ describe('unit-diaglog', function() {
                 getServerMethods: () => {},
                 recvData: () => {},
             })
-            let ok = await waitFor(() => inputs.length >= 3)
+            let ok = await waitFor(() => inputs.length >= 3, tr)
             assert.strict.equal(ok, true)
             c.clearBroadcast()
             c.clearSync()
-            await sleep(300)
+            await drain(3)
             assert.strict.deepEqual(made.map((v) => v.n).filter((n) => n !== 1), [], '每個thenable之then恰一次')
             let toks = inputs.map((v) => v.__sysToken__)
             assert.strict.deepEqual(toks.filter((t) => !/^VALUE-\d+-1$/.test(t)), [], '送出者皆為各thenable第1次then之值')
@@ -714,9 +715,9 @@ describe('unit-diaglog', function() {
                     return Reflect.getPrototypeOf(t)
                 },
             })
-            let { cl, sent } = linkCtl()
+            let { cl, sent, tr } = linkCtl()
             let c = new WServWebdataClient(cl, { getToken: () => px, getServerMethods: () => {}, recvData: () => {} })
-            let ok = await waitFor(() => sent.length >= 3)
+            let ok = await waitFor(() => sent.length >= 3, tr)
             assert.strict.equal(ok, true)
             c.clearBroadcast()
             c.clearSync()
@@ -728,7 +729,7 @@ describe('unit-diaglog', function() {
             this.timeout(30000)
             let nThen = 0
             let nCall = 0
-            let { cl, sent } = linkCtl()
+            let { cl, sent, tr } = linkCtl()
             let c = new WServWebdataClient(cl, {
                 getToken: () => {
                     nCall++
@@ -744,11 +745,11 @@ describe('unit-diaglog', function() {
                 recvData: () => {},
             })
             let nPollOf = () => sent.filter((f) => f === '[sys:polling]').length
-            let ok = await waitFor(() => nPollOf() >= 3, 30000)
+            let ok = await waitFor(() => nPollOf() >= 3, tr)
             assert.strict.equal(ok, true)
             c.clearBroadcast()
             c.clearSync()
-            await sleep(300)
+            await drain(3)
             //輪詢經w-serv-broadcast對回傳值做resolve而每輪恰呼叫一次then屬性; 本套件請求路徑以await採納原生promise而不呼叫then屬性; 多呼叫(例如t.then(...))則約為兩倍
             let nPoll = nPollOf()
             assert.strict.equal(nThen <= nPoll + 1 && nThen >= nPoll, true, `then=${nThen} poll=${nPoll}`)
@@ -767,6 +768,7 @@ describe('unit-diaglog', function() {
                     let thrown = new Error('GETTOKEN_BOOM')
                     let { cl, sent } = linkCtl()
                     let errs = []
+                    let trErr = genTracer()
                     let c = new WServWebdataClient(cl, {
                         getToken: () => {
                             if (kind === 'throw') {
@@ -776,11 +778,13 @@ describe('unit-diaglog', function() {
                         },
                         getServerMethods: () => {},
                         recvData: () => {},
+                        onTrace: trErr.onTrace,
                     })
                     c.on('error', (e) => {
                         errs.push(e)
                     })
-                    let ok = await waitFor(() => errs.some((e) => e && e.msg === '[sys:polling] error' && e.err === thrown))
+                    await trErr.wait({ type: 'deliver', name: 'error' }) //輪詢取token失敗之error事件已派發給監聽器
+                    let ok = errs.some((e) => e && e.msg === '[sys:polling] error' && e.err === thrown)
                     assert.strict.equal(ok, true, `${kind}: 輪詢之error為原錯誤`)
                     assert.strict.deepEqual(sent, [], `${kind}: 取token失敗不送出請求`)
                     c.clearBroadcast()
@@ -803,15 +807,15 @@ describe('unit-diaglog', function() {
                             return Promise.reject(thrown)
                         },
                     })
-                    let ok = await waitFor(() => log.fapi !== null)
-                    assert.strict.equal(ok, true)
+                    await log.tr.wait({ type: 'hook', name: 'getServerMethods' }) //已綁定
+                    assert.strict.equal(log.fapi !== null, true)
                     flag.bad = true
                     let n0 = sent.filter((f) => f === 'tabA.select').length
                     let err = await log.fapi.tabA.select().then(() => null, (e) => e)
                     assert.strict.equal(err, thrown, `${kind}: $fapi以原錯誤reject`)
                     assert.strict.equal(sent.filter((f) => f === 'tabA.select').length, n0, `${kind}: 不送出請求`)
                 }
-                await sleep(300)
+                await drain(3) //微任務與unhandledRejection之檢查皆已跑完
                 assert.strict.deepEqual(un, [])
             }
             finally {
@@ -826,9 +830,11 @@ describe('unit-diaglog', function() {
             for (let opt of [{}, { logDetail: true }, { funLog: genFunLog() }]) {
                 let { cl } = linkCtl()
                 let calls = []
+                let trHook = genTracer()
                 let rec = (name, pick) => {
                     return (...args) => {
                         calls.push([name, pick(...args), args.length])
+                        trHook.onTrace({ type: 'hook', name })
                     }
                 }
                 let c = new WServWebdataClient(cl, {
@@ -840,8 +846,7 @@ describe('unit-diaglog', function() {
                     getAfterUpdateTableTags: rec('getAfterUpdateTableTags', (r) => r),
                     ...opt,
                 })
-                let ok = await waitFor(() => calls.some((v) => v[0] === 'getAfterUpdateTableTags'))
-                assert.strict.equal(ok, true)
+                await trHook.wait({ type: 'hook', name: 'getAfterUpdateTableTags' }) //首次同步批次完成
                 c.clearBroadcast()
                 c.clearSync()
                 outs.push(calls)
@@ -1197,7 +1202,7 @@ describe('unit-diaglog', function() {
             let pm = Promise.resolve('pm')
             assert.strict.equal(b2.watch(pm), pm)
             await pm
-            await sleep(10)
+            await flush() //記錄用分支於解出後之微任務執行
             let nThen = 0
             let th = {
                 then(resolve) {
@@ -1206,7 +1211,7 @@ describe('unit-diaglog', function() {
                 },
             }
             assert.strict.equal(b2.watch(th), th)
-            await sleep(10)
+            await flush() //若有額外之then呼叫, 亦於微任務內發生
             assert.strict.equal(nThen, 0, '非原生promise之thenable不被觸發then')
             assert.strict.deepEqual(b2.tokens, ['plain', 'pm'])
             let rj = Promise.reject(new Error('R'))

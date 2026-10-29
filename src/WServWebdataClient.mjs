@@ -45,6 +45,7 @@ let isGiven = (v) => {
  * @param {Function} [opt.getAfterUpdateTableTags=null] 輸入取得更新資料表時間戳後之回調函數，有給但非函數時拋錯，預設null
  * @param {Boolean} [opt.logDetail=false] 輸入診斷輸出是否還原為完整細節(含資料值與錯誤原文，供除錯)，有給但非布林時拋錯，預設false。本套件僅有一處診斷輸出(停止後才拋錯之回調函數，console.error)，預設只輸出固定標籤'[w-serv-webdata] callback error after stop'與摘要{ hook, errType, errCode }(回調函數名稱、錯誤類別與代碼)，不輸出錯誤原文；設為true時再輸出該錯誤之完整內容。token一律遮罩為'[token]'(logDetail與funLog亦然)：opt.getToken所得者(含輪詢所取，至多最近128個，字串內以子字串比對)、名稱含token、authorization或api-key之鍵的值、Bearer憑證，以及字串內token=、"__sysToken__":"…"等鍵值形式之值；無法辨識之任意文字中的其他token不保證；摘要中的錯誤類別(建構子名稱)與代碼(自有屬性code，限整數或ENOENT、ERR_*樣式)由使用端程式決定，以資料動態命名類別或把使用者識別存入code者不在保證範圍。只涵蓋本套件自身之輸出，不含w-serv-broadcast與w-sync-webdata等下層之輸出
  * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，有給但非函數時拋錯，預設null。給予時診斷輸出只交給它而不寫console：label為固定標籤，safe為不含資料值之摘要，detail為完整細節(該錯誤之拷貝，含資料值與錯誤原文，token已遮罩；無細節者不傳)，供使用端遮罩或轉送；拷貝時函數、RegExp、二進位資料、過深或過大者以標記字串代替，不執行getter(Error的stack除外)，原型物件不複製(原型上的資料屬性不遮罩、可變狀態與原物件共用)；其拋錯與回傳promise之reject皆被吞下，不影響本套件流程
+ * @param {Function} [opt.onTrace=null] 輸入觀察回調函數，格式為(e)=>{}，預設null(未給或非函數時忽略，行為、時序與效能同未提供)，供測試與診斷以事件(而非等待毫秒)同步。本套件自身無計時器，本選項原樣轉交所包之w-serv-broadcast前端之opt.onTrace(1.1.14起)，事件不增不減、欄位與時機以其JSDoc為準；回調同步呼叫、不帶接收者，e為凍結之事件物件{ type, ... }(欄位皆為原始值)，其拋錯與回傳之rejection皆忽略，不影響輪詢與同步。type有：start(輪詢計時器建立，ms為輪詢間隔)、tick(計時器每次觸發，n為已開始之輪數，skipped為前一輪在途而略過)、request(發出第n輪輪詢，token為輸入是否帶token)、result(第n輪結果，ok、reason為'ok'、'invalid'或'error'，早於對應事件之派發)、emit(w-serv-broadcast之事件已排定於1ms後派發，name為事件名，如openOnce、open、broadcast、error)、deliver(事件已派發而監聽器皆已呼叫完，name為事件名，ok為監聽器是否皆未拋錯)、report(改以error事件或console.error通報，src為'listener'或'error'，via為'event'或'console')、stop(clearBroadcast首次呼叫完成，inflight為停止時是否有在途之輪詢)。停止後除停止當下已在進行之那次派發之deliver與report外不再通知。w-sync-webdata之opt.onTrace不轉交
  * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast(停止輪詢)、clearSync(釋放資料同步)停止(見上方說明)
  * @example
  *
@@ -281,10 +282,13 @@ function WServWebdataClient(instWConverClient, opt = {}) {
 
     //擴充廣播功能, getToken交給w-serv-broadcast前端(1.1.11起opt.getToken), 使輪詢亦帶token(固定鍵__sysToken__), 供伺服端opt.verifyPolling驗證身分(見WServWebdataServer);
     //輪詢每輪重新呼叫getToken(與停止之關係: 輪詢依w-serv-broadcast之生命週期, 見clearBroadcast, 只呼叫clearSync時輪詢續行而仍帶token)
+    //onTrace, 觀察回調(選用), 原樣轉交w-serv-broadcast前端(本套件自身無計時器), 非函數時不轉交
+    let onTrace = get(opt, 'onTrace', null)
     instWConverClient = new WServBroadcastClient(instWConverClient, {
         getToken: () => {
             return book.watch(getToken())
         },
+        onTrace: isfun(onTrace) ? onTrace : null,
     })
 
     //on, 註冊本套件於通訊物件之監聽並記錄, 停止時移除(掛的人負責移除): 下層皆允許停止後於同一事件物件重建, 舊實體之監聽若留著會先於新實體處理同一事件

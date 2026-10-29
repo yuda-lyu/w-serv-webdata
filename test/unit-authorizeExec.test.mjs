@@ -3,9 +3,11 @@ import fs from 'fs'
 import evem from 'wsemi/src/evem.mjs'
 import genPm from 'wsemi/src/genPm.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
+import { drain } from './tools/tracer.mjs'
 
 
 //以evem建構(不開網路), 並模擬w-converhp派發execute事件, 驗證資料通道之授權(authorizeExec)、建構檢查與各關卡之拒絕語意
+//否定斷言(「不發出error事件」等)前以drain取代等待毫秒: 資料通道之error事件於結算回應之同一同步區段內經evEmit派發(WServWebdataServerExec), 回應結算後已發出; drain另讓微任務與1ms脫勾派發跑完, 與負載無關
 describe('unit-authorizeExec', function() {
 
     //fdTmp, 本測試暫存檔之專用資料夾, 測完即刪
@@ -421,7 +423,7 @@ describe('unit-authorizeExec', function() {
                 errs.push(err)
             })
             await exec(inst, 'tabA.select', [{}])
-            await sleep(20)
+            await drain()
             assert.strict.equal(errs.length, 0)
         })
 
@@ -486,7 +488,7 @@ describe('unit-authorizeExec', function() {
                 errs.push(err)
             })
             await withTimeout(exec(inst, 'tabA.select', [{}]))
-            await sleep(20)
+            await drain()
             assert.strict.deepEqual(errs, ['errUserIdMissing'])
         })
 
@@ -564,7 +566,7 @@ describe('unit-authorizeExec', function() {
                 }
                 inst.emit('execute', 'tabA.select', { __sysToken__: 'tok', __sysInputArgs__: [{}] }, pm)
                 let r = await withTimeout(pm)
-                await sleep(50)
+                await drain()
                 assert.strict.deepEqual(r, { state: 'error', msg: 'errUserIdMissing' })
                 assert.strict.equal(nResolve, 1)
                 assert.strict.equal(unhandled.length, 0)
