@@ -79,6 +79,7 @@
 ### R7 各關卡之拒絕值原樣成為前端拒絕值
 
 - 規則:getUserIdByToken 以 try/catch 攔下後 `pm.resolve({ state: 'error', msg: err })`;authorizeExec、operOrm、kpFunExt 經 pm2resolve.套件自訂之拒絕訊息一律字串.getUserIdByToken 不可改用 pm2resolve(其把同步 `throw null` 視為成功,會以空字串 userId 繼續執行).
+- 2026-10-29 起(R18):拒絕值「原樣」指**不含憑證或 token 者原樣**;含者(網址帳密、password／token 等鍵值、伺服端收到之 token)經 `diag.mask`／`maskResult` 遮罩為 `***`(Error 為副本,保留類別與 code);本套件自身之固定詞彙拒絕訊息(`ownMsgs`)不遮;成功之資料不遮.
 - 序列化後前端所見(實測):字串 → 原字串;物件 → 原物件;Error → `'Error: 訊息'`(wsemi `obj2stru8arr.mjs:123-124`);undefined → undefined;null → null.不支援之格式見 D1.
 - 盤點:`git grep -n "pm.resolve(" -- src/WServWebdataServerExec.mjs`.
 - 站點:getUserIdByToken 之 catch(已套);函數呼叫之 pm2resolve(已套);內層 catch(刻意:只由 pm2resolve 同步拋錯或參數展開失敗觸發);外層 catch(防禦性,無已知來源).
@@ -122,6 +123,7 @@
 | 9008 | `api-diaglog` | 診斷輸出,預設(連線全程 console 不含個資) |
 | 9009 | `api-diaglog` | 診斷輸出,`funLog`(前端與伺服端) |
 | 9010 | `api-diaglog` | 診斷輸出,`logDetail`(token 遮罩) |
+| 9011 | `api-diaglog` | 診斷輸出,X62 後端 reject 含密碼與 token 之遠端 msg(原始回覆) |
 
 - 站點:`test/unit-*.test.mjs`、`test/api-authorizeExec.test.mjs`、`test/api-clientStop.test.mjs`(已套);`test/api-servdata.test.mjs` 與 `srv.mjs` 寫 repo 根之 `db.json`、`tableTags.json`、`./uploadTemp`(未套,既有).
 
@@ -206,41 +208,57 @@
 - 站點:鉤子注入(已套);Exec 略過(已套);前端 getToken 交付(已套);clearBroadcast 包裝(已套).
 - 測試:`test/unit-sysFuncs.test.mjs`〈R17 輪詢之身分關卡〉7 條(矩陣:10 token 狀態〔含無鍵〕×10 設定)、〈R17 輪詢之clientId歸屬〉10 條;`test/unit-WServWebdataServer.test.mjs`〈釋放〉clientLeave 監聽 2 條(移除、註冊失敗時停止廣播);`test/unit-WServWebdataClient.test.mjs`〈輪詢帶token〉1 條;`test/api-sysFuncs.test.mjs`.變異驗證見〈測試對照〉.
 
-### R18 診斷輸出不得含資料值、id、token 與錯誤原文,且經單一出口
+### R18 診斷輸出與遮罩(依主控 dspec〈診斷輸出與遮罩〉;實作與規則帳本在 wsemi R-DIAG-01)
 
-- 依據:Gitea issue #12(w-serv-orm 寫入失敗時把失敗列主鍵與 ORM 錯誤原文以 console.log 印到標準輸出;w-serv-orm 1.1.20 改為單一出口 `getDiag`,預設只輸出標籤與不含個資之摘要).主控定一致介面:選項名稱與語意比照 w-serv-orm(`logDetail`、`funLog`),各套件自行實作(不抽到 wsemi).本套件 2026-10-28 webdata-run01.
-- 規則:
-  - ①src 內所有 console 輸出經單一出口 `src/getDiag.mjs` 之 `getDiag(optLog, getTokens)` 回傳的 `diag(label, safe, getDetail, isErr)`;其餘檔案不得直接呼叫 console(`unit-diaglog`〈盤點〉自動檢查).新增診斷輸出站點須經 `diag` 並登記於下方站點表.
-  - ②預設輸出 = 固定標籤 + 不含資料值、id、token、錯誤原文之摘要:回調函數名稱(固定識別字)、錯誤類別(建構子名稱,符合 `^[A-Za-z][A-Za-z0-9_]{0,39}$`;不取可被指定為任意文字之 `name`)、機器代碼(自有資料屬性 `code`:絕對值至 99999 之整數,或 `E[A-Z0-9]{2,15}`、`ERR_*` 字串);不輸出錯誤訊息文字;全程不執行 getter.
-  - ③`logDetail`(布林,預設 false)還原完整細節(原輸出);`funLog(label, safe, detail)`(函數)給予時取代 console,收完整細節〔錯誤之拷貝〕;兩者並給時只交給 funLog;funLog 拋錯、回傳之 promise/thenable 之 reject 皆吞下.型別錯誤(logDetail 非原生布林、funLog 非函數;`new Boolean(true)` 亦拋錯,不得被接受後靜默轉 false)拋 `Error('invalid opt.logDetail')`／`('invalid opt.funLog')`,與其他選項一致(伺服端於建構子開頭、先於其餘檢查——使「非有效物件」提示依之輸出且時機同舊版;前端於 getToken 檢查之後;皆在建構任何元件之前);null、undefined 視為未給;選項讀取一次成固定快照.
-  - ④token 一律遮罩為 `[token]`(預設、logDetail、funLog 皆然;**保證範圍僅下列三類,不保證任意文字中的其他 token**):
-    - 前端取得過之 token(至多最近 128 個,`genTokenBook`:本套件請求於 `executeShell` 取得後 `book.note`,輪詢之 token 經 `book.watch` 記錄;兩處皆只記錄,不改變 getToken 之呼叫次數、拋錯與回傳值;`watch` 對字串等原始值原樣交還,對 promise／thenable 以 `new Promise(resolve => resolve(t))` 採納〔其 then 恰被呼叫一次,與 w-serv-broadcast 自己 `resolve(getToken())` 相同〕後再記錄,**不得**直接 `t.then(...)`〔外審 terra:對有狀態 thenable 多呼叫一次 then 會改變實際送出之 token,對自訂 then 回 rejected promise 者多出 unhandledRejection〕),比對為子字串(短 token 會遮罩字樣中相同片段,取捨).
-    - 鍵名含 `token`／`authorization`／`api-key` 者之值(含 Symbol 鍵之描述、Map 之字串鍵)與 Bearer 憑證.
-    - 字串內 `token=`／`"__sysToken__":"…"`／`Authorization: Basic …`／`x-api-key=…`／引號包住含空白之值(未結束之引號取至結尾)等鍵值樣式;單獨出現的 `Basic`／`Token` 等常用字不遮罩(只認 `Bearer`).
-    - 實作為單一比對式一次掃描(順序 Bearer、鍵值樣式、已知 token〔長者優先、元字元跳脫〕),已取代之文字不再被比對(不以遮罩字樣切段):若先逐一取代已知短 token(如測試輔具之 `'tok'`),會破壞 `token=` 字樣使真值外漏,且已知 token 本身含 `[token]` 字樣者無法整個遮罩(webdata-run01 實測與外審).
-    - 細節為拷貝(深度 8、節點與鍵合計 5000):只用 `instanceof`／`Array.isArray`／`ArrayBuffer.isView` 判型(不讀 `Symbol.toStringTag`),不執行 getter(僅 `Error` 的 `stack` 存取器且其 getter 嚴格等於內建者才取值),跨 realm 的 Error 以一般物件複製;**原型不複製**(原型上的資料屬性不遮罩、可變狀態共用),**Proxy 的陷阱無從避免**(瀏覽器無法偵測 Proxy);摘要與細節內之字串皆遮罩(摘要:token 恰為類別名稱或代碼者亦遮罩).
-    - 記憶範圍外之舊 token(輪替超過 128 個前者)與未知 token 只依後兩類遮罩(外審 terra 已列為限制,不改).
-  - ⑤診斷輸出不得使流程拋錯(細節取得、console、funLog 拋錯一律吞下;funLog 回傳之 promise 以內建 `Promise.prototype.then` 附處理,不讀其可被覆寫之 then),不得改變回傳值、reject 內容、事件(error、broadcast 等)之內容與時機.**刻意的行為差**:修前伺服端提示若 `console.log` 本身拋錯會使建構失敗,現吞下而建構成功(診斷輸出不得影響流程,同 w-serv-orm;外審 terra 第 17 條列為契約變更,保留並載明).
-  - ⑥瀏覽器相容:`getDiag.mjs` 為前端共用,不得引用 Node 內建模組(w-serv-orm 版用 `util.types`,本套件改為 `instanceof`、`Object.prototype.toString` 與 `Array.isArray`).
-- 單一擁有者:`src/getDiag.mjs`;呼叫站點:`src/WServWebdataClient.mjs`(callHook 之 catch)、`src/WServWebdataServer.mjs`(建構開頭之非有效物件提示).
+- 依據:跨套件規格 `C:\opensrcOper\dspec\診斷輸出與遮罩.md`(D1 單一實作、D2 預設不輸出資料值、D3 對外錯誤值不含憑證、D4 永不拋錯且有界、D5 共用語料;裁定 Q1～Q4、P1～P9)與 wsemi `sgud/rule/rulebook_diag.md` R-DIAG-01(wsemi 1.9.31 起;帳本在 wsemi,**本套件不重述其內容,也不得另寫等價實作**).來由:Gitea issue #12(2026-10-28 webdata-run01,原各套件自寫 `src/getDiag.mjs`)→ 排程第 161 項抽成 wsemi 共用(本套件 2026-10-29 mig-webdata 遷移,舊自寫 `getOptLog`／`getDiag`／`getBriefErr`／`cpDetail`／`maskStr`／`swallow` 全刪,`genTokenBook` 留本套件).
+- 規則(本套件須做到的,細則以 wsemi 為準):
+  - ①診斷輸出一律經 wsemi `getDiag` 之實例(`src/genDiag.mjs` 的 `genDiag(optLog, book)`);src 內不直接呼叫 console(`unit-diaglog`〈盤點〉自動檢查),不得另寫遮罩或摘要.
+  - ②本套件只宣告:`secrets`=token 簿(`book.secrets()`,即 `getDiagSecrets({ values })`,近期 128 個＋進行中請求之 token)、`safeKeys: ['hook']`;不宣告 `codes`／`types`／`nested`／`patterns`／`paths`(無儲存路徑與帳號).
+  - ③外來值(後端函數、授權函數、`getUserIdByToken`、通訊層、使用端回調所給之拒絕值或拋錯)於站點經 `diag.err`(事件、reject、throw)或 `diag.mask`(回給遠端之 `msg`);**本套件自身以固定詞彙組成之拒絕值不包**(固定字串經遮罩挖空會反推短 token;前端 `msgStop`、伺服端 `ownMsgs`〔`permission denied`、`invalid find[…]`〕例外).`data` 等呼叫端自身之輸入不在規則內.
+  - ④`isErr` 換為 `level`(`'error'`=console.error;其他任何值=console.log);label 只用固定字串字面值,safe 之鍵限 `safeKeys`.
+  - ⑤進行中請求之 token 保留至請求結束(X54):`book.hold(token)` 於 `executeShell`(前端)、`execFun`(伺服端,另含收尾之 catch)、`genPollingGate.verifyPolling` 取得 token 後呼叫,`finally` 釋放;不得改回只 `note`.
+  - ⑥選項型別檢核(`invalid opt.logDetail`／`invalid opt.funLog`,伺服端建構子開頭、前端 getToken 檢查之後)在 `genDiag.mjs` 之 `checkOptLog`,行為同舊版 `getOptLog`;其回傳之固定快照交給 wsemi `getDiag`.
+  - ⑦遮罩字樣 `***`(原 `[token]`);長度不足 4 之 token 不遮(wsemi reject 清單門檻);回遠端之 `msg` 為再過一層(後端連線帳密由 ORM 層 `diag.err` 負責).
+- 單一擁有者:wsemi `getDiag` 等 8 函數;本套件之宣告 `src/genDiag.mjs`(`checkOptLog`、`genDiag`)、`src/genTokenBook.mjs`(token 簿,含 `hold`／`list`／`secrets`／`watch`);呼叫站點見下表.
 - 盤點指令(repo 根):
-  - `git grep -n "console" -- src`,逐行分為 code(可執行)／commented-out(`// console.x(`)／jsdoc-example(` * … console.x(`)／prose(說明文字);可執行者必須只在 `src/getDiag.mjs`(分類腳本隨 webdata-run01 修正報告附件留存).
-  - 自動檢查:`npx mocha --no-parallel test/unit-diaglog.test.mjs`〈盤點〉(掃 `src/*.mjs` 可執行行).
-  - `git grep -n "diag(" -- src` → 站點(Client 1、Server 1,另 getDiag 內回傳之函數定義).
-- 站點全集(2026-10-28,修前 HEAD `211b4b5`;`src/` 內 console 字樣共 67 行:可執行 2、已註解掉之程式碼 25、JSDoc 範例內之呼叫 38〔`WServWebdataServer.mjs` 238–372、`WServWebdataClient.mjs` 67–163、`checkFind.mjs` 48–60〕、說明文字 2):
+  - `git grep -n "console" -- src`,可執行行必須為 0(自動檢查:`unit-diaglog`〈盤點: src內診斷輸出之出口〉).
+  - `git grep -n "diag(" -- src` → 診斷出口站點(Client 1、Server 1,自動檢查:label 為字串字面值).
+  - `git grep -nE "reject\(|throw |evEmit\(|state: 'error'|diag\.(err|mask)" -- src` → 對外錯誤值站點全集,逐行對下表.
+- 站點全集(2026-10-29 mig-webdata,HEAD `62bbd97` 之後;`src/` 可執行 console 0 處):
 
-| 站點 | 輸出內容 | 判準 | 處置 |
+| # | 站點 | 值之來源 | 處置 |
 |---|---|---|---|
-| `WServWebdataClient.mjs:250`(修前)`console.error('[w-serv-webdata] callback error after stop', err)` | 使用端回調拋出之錯誤本身(訊息、堆疊與其附帶資料,可能含資料值、使用者 id、token) | 須改 | 已套:`diag`,預設 `{ hook, errType, errCode }`;完整細節僅 logDetail／funLog,token 遮罩 |
-| `WServWebdataServer.mjs:491`(修前)`console.log('instWConverServer is not an effective object, ...')` | 固定文字 | 可留 | 已套:仍輸出同文字、同時機(先於其餘設定檢查,其他設定錯誤時仍先輸出提示再拋錯,同舊版),但改經 `diag`(使 funLog 可取代、盤點單一);`logDetail`／`funLog` 先解析,無效即拋錯且不輸出 |
-| 已註解掉之程式碼 25(`WServWebdataClient.mjs` 18、`WServWebdataServerExec.mjs` 4、`WServWebdataServerSync.mjs` 2、`WServWebdataServer.mjs` 1) | — | 不計 | 刻意不套(不執行);若取消註解須先改經 `diag` |
-| JSDoc 範例 38 | — | 不計 | 刻意不套(文件範例,供使用端參考) |
+| 1 | `WServWebdataClient.mjs` `emitError`(回調拋錯、`updateTableTags` 拒絕、openOnce 流程拒絕)→ `evEmit(…'error', [toOut(err)])` | 外來(使用端回調、w-sync-webdata、通訊層) | `diag.err`(經 `toOut`) |
+| 2 | 同上 `callHook` 停止後拋錯 → `diag(label, { hook, ...diag.brief(err) }, () => err, 'error')` | 診斷出口 | wsemi `getDiag`:level `'error'`、safeKeys `['hook']`、detail 經 `maskDiagCopy` |
+| 3 | 同上 `executeShell` getToken 拋錯／reject → `throw diag.err(err)` | 外來(使用端回調) | `diag.err` |
+| 4 | 同上 `executeShell` 等 token 期間停止 → `pm.reject(msgStop)` | 固定詞彙 | 原樣 |
+| 5 | 同上 `execute` 回覆 `state≠success` → `pm.reject(toOut(res))` | 外來(伺服端回覆之 msg) | `diag.err` |
+| 6 | 同上 `execute` 拒絕 → `pm.reject(toOut(err))` | 外來(通訊層);中止之 reason 為 `msgStop`(固定,`toOut` 例外) | `diag.err`(`msgStop` 原樣) |
+| 7 | 同上 `refreshTable` 缺表／select 非函數 → `pm.reject('invalid kpExec[…]'／'kpExec[…].select is not a function')` | 固定詞彙＋伺服端宣告之表名 | 原樣 |
+| 8 | 同上 `refreshTable` 停止 → `pm.reject(msgStop)` | 固定詞彙 | 原樣 |
+| 9 | 同上 `refreshTable` select 拒絕 → `input.pm.reject(toOut(err))` | 外來(select 可被使用端替換) | `diag.err` |
+| 10 | 同上建構期 `throw new Error('…')`(通訊物件檢查、`invalid opt.*`、AbortController) | 固定詞彙 | 原樣 |
+| 11 | `WServWebdataServer.mjs` `diag('instWConverServer is not an effective object, …')` | 診斷出口,固定文字,level 預設 log | wsemi `getDiag`(無 safe、無 detail) |
+| 12 | 同上建構期 `throw new Error(…)`(非 EventEmitter 等) | 固定詞彙 | 原樣 |
+| 13 | 同上建構失敗之 catch → `throw diag.err(err)` | 混合(使用端 `genTag`／`kpOrm.on` 之外來值＋固定詞彙 Error);建構期 token 簿為空,僅套通用憑證樣式 | `diag.err`(不含憑證者原樣,身分不變) |
+| 14 | `WServWebdataServerExec.mjs` `buildFuncs` → `Promise.reject(ownMsg('invalid find[…]'／'permission denied'))` | 固定詞彙(`ownMsgs` 登錄) | 原樣(`maskResult` 不遮) |
+| 15 | 同上 `execFunCore` 固定回應 `invalid func`／`invalid token`／`invalid input` | 固定詞彙 | 原樣 |
+| 16 | 同上 `getUserIdByToken` 拒絕 → `{ state:'error', msg: diag.mask(err) }` ＋ `evEmit(…'error', [diag.err(err)])` | 外來(使用端回調) | `diag.mask`(回遠端)、`diag.err`(事件) |
+| 17 | 同上 `permission denied`(系統函數無身分)→ `{ msg:'permission denied' }` ＋ `evEmit(…'error', [{ msg, func }])` | 固定詞彙＋`func`(呼叫端輸入,屬 data 類) | 原樣 |
+| 18 | 同上 `invalid func[${func}]` | 固定詞彙＋呼叫端輸入 | 原樣 |
+| 19 | 同上函數結果 `pm.resolve(maskResult(r))`(表操作之 operOrm／authorizeExec、kpFunExt 之拒絕值) | 外來(後端、使用端);X62 高嚴重度 | `diag.mask`(`state≠success` 者;成功之資料不遮;`ownMsgs` 不遮) |
+| 20 | 同上 `call func[…] has an error: …`(catch) | 外來文字 | `diag.mask` |
+| 21 | 同上 `execFun` 收尾 `execFun func[…] has an error: …` ＋ `evEmit(…'error', [diag.err(err)])` | 外來 | `diag.mask`、`diag.err` |
+| 22 | 同上 parseOpt／建構期 `throw new Error(…)` | 固定詞彙 | 原樣 |
+| 23 | `genPollingGate.mjs` `verifyPolling` 內 `getUserIdByToken` 拋錯／reject → `throw diag.err(err)`(w-serv-broadcast 以之發 `[sys:polling] verifyPolling error` 事件) | 外來(使用端回調) | `diag.err` |
+| 24 | `genPollingGate.mjs` 回傳之描述字串(`stopped`／`empty userId`／`clientId belongs to another userId`) | 固定詞彙 | 原樣 |
+| 25 | `WServWebdataServerSync.mjs` `throw new Error('invalid kpOrm[…]'…)`、`throw err`(回滾後重拋上列固定 Error) | 固定詞彙 | 原樣 |
+| 26 | 結果物件之逐筆 `err` | 本套件無此類結果物件 | 不適用 |
 
-- 下層／使用端輸出(範圍外,見 L24):w-serv-broadcast `src/genEeEmit.mjs:40`、w-sync-webdata `src/genEmit.mjs:53` 於無 `error` 監聽者時以 `console.error` 輸出 error 事件內容;wsemi `evEmit` 於監聽器拋錯且無 `error` 監聽者時 `console.error`.
-- 測試:`test/unit-diaglog.test.mjs`(41 條)、`test/api-diaglog.test.mjs`(埠 9008~9010,3 條);`test/unit-WServWebdataClient.test.mjs` 之 R56 條斷言隨預設輸出更新.
-- 測試要點(外審兩輪後):敏感值用 `util.inspect({ showHidden: true, customInspect: false })` 完整傾印比對(`JSON.stringify` 漏掉 Error 之 message／stack、Symbol 鍵、繼承屬性);契約鎖定用修前實測值(各回調函數之呼叫順序與引數個數形狀、getToken 呼叫次數與 then 呼叫次數、getToken 拋錯／reject 之 error 與無 unhandledRejection);code 樣式矩陣直接測 `getBriefErr`(快)再以少數端到端案例驗整條路徑.
-- 修前紅:`git archive HEAD src` 解到 `./tmp/…/old/src`,放入新 `getDiag.mjs` 當替身,新測試複本跑於其上——紅者為診斷輸出之新行為,綠者為模組自身之單元與行為鎖定(契約不變之證據).
-- 變異驗證:`./tmp/…/mut/runMut3.mjs`(於複本施變異,每個先 `node --check`,find 必須恰一次,對照組 M00 須綠);外審所列之逃逸變異(email code、長 token、回調引數被丟、getToken 拋錯被吞)皆納入並被抓.
+- 範圍外(下層,見 README〈Diagnostic output〉):w-serv-broadcast 輪詢 `getToken` 失敗之 `{ msg:'[sys:polling] error', err }` 事件之 `err`、無 `error` 監聽者時之 `console.error`;wsemi `evEmit` 監聽器拋錯之 `console.error`.
+- 測試:`test/unit-diaglog.test.mjs`(接線:選項檢核、預設摘要、funLog、logDetail、事件契約、伺服端固定文字、`genTokenBook` 含 `hold`／`secrets`、盤點)、`test/unit-diagmask.test.mjs`(對外錯誤值之站點:前端 7 條〔含 select 被替換、固定詞彙原樣、X54〕、伺服端 9 條〔含 X62、execFun 收尾、建構失敗、輪詢、固定詞彙、X54、Exec 直接建構〕)、`test/unit-diagcorpus.test.mjs`(共用語料 `wsemi/src/_diagCases.mjs` 之適用子集,14 案,不適用者與理由見檔頭)、`test/api-diaglog.test.mjs`(真 HTTP,埠 9008~9011,第 4 條 X62 經 `WConverhpClient` 取回原始回覆)。
+- 測試要點:敏感值用 `util.inspect({ showHidden: true, customInspect: false })` 完整傾印比對;形態類案不在本套件重寫(先入 wsemi 語料再修實作);站點接線案須「修前紅(舊版原樣交出外來值)、修後綠」並過變異(漏包一個站點、誤包固定詞彙、`hold` 改 `note`、`maskResult` 不遮).
+- 修前紅與變異:見 `C:\opensrcOper\dnow\20261029002013\agent-out\mig-webdata-修正報告.md`.
 
 ### R19 計時器相關之測試以事件同步(觀察回調 `opt.onTrace`),不以等待毫秒
 
@@ -283,8 +301,10 @@
 | `test/unit-sysFuncs.test.mjs` | R16 系統函數之身分關卡(evem,不開網路) | 15 | R16(含預設三者公開、嚴格設定、預設 getUserIdByToken、舊前端元件相容、falsy 拒絕值) |
 | 同上 | R17 輪詢之身分關卡 | 7 | R17 ①②⑤、R16 |
 | 同上 | R17 輪詢之clientId歸屬 | 10 | R17 ③④(含 10 秒在線逾時回收、genPollingGate 單元、連續被拒、任意字串 clientId、非字串 clientId) |
-| `test/unit-diaglog.test.mjs` | 選項檢查／預設摘要／funLog／logDetail／契約不變／伺服端固定文字／getDiag 與 cpDetail／盤點 | 41 | R18(預設不含個資、funLog 收完整細節、logDetail 還原、token 遮罩、回傳與事件契約、src 內除 getDiag 外不直接呼叫 console) |
-| `test/api-diaglog.test.mjs` | (真 HTTP,埠 9008~9010;連線全程擷取本行程 console) | 3 | R18(預設／funLog／logDetail 三組;同步與 `$fapi` 結果不變) |
+| `test/unit-diaglog.test.mjs` | 選項檢查／預設摘要／funLog／logDetail／契約不變／伺服端固定文字／genTokenBook／盤點(接線測試;形態類案改由共用語料,見 unit-diagcorpus) | 見 state | R18(預設不含個資、funLog 收完整細節、logDetail 還原、token 遮罩為 `***`、回傳與事件契約、src 不直接呼叫 console、diag 站點全集) |
+| `test/unit-diagmask.test.mjs` | 對外錯誤值之站點接線:前端(通訊層拒絕、伺服端回覆、回調拋錯、getToken 拋錯、select 被使用端替換、固定詞彙原樣、X54)、伺服端(X62 遠端 msg、Error 副本、execFun 收尾與呼叫 catch、建構失敗 catch、輪詢、成功資料不遮、固定詞彙原樣、X54、Exec 直接建構) | 16 | R18(③站點表 #1、3、5、6、9、13～23) |
+| `test/unit-diagcorpus.test.mjs` | wsemi 共用語料 `_diagCases` 之適用子集(T01、T07、K01、K09、V02、E01、E07、P01、S07、C01、R01、R04×2、O15) | 14 | R18(形態類案;不適用案與理由見檔頭) |
+| `test/api-diaglog.test.mjs` | (真 HTTP,埠 9008~9011;連線全程擷取本行程 console) | 4 | R18(預設／funLog／logDetail 三組;同步與 `$fapi` 結果不變;X62 遠端 msg 不含密碼與 token) |
 | `test/api-sysFuncs.test.mjs` | (真 HTTP,埠 9003~9007,見 R11 埠表) | 14 | R16、R17(輪詢實際帶 token;嚴格設定下持標頭 token 之匿名者、他人身分與舊前端元件被拒;sso 型三者/預設可綁定、嚴格設定不綁定;perm 型預設下新、舊前端元件皆可綁定同步) |
 
 輔助(不帶 `.test.`):`test/tools/clientHarness.mjs`(前端測試共用之 `sleep`、`hookNames`、`extraHooks`、`zeros`、`genRun`、`linkCtl`、`linkSig`;2026-10-24 起 `genRun` 之 `nToken` 於通訊物件見 `[sys:polling]` 時扣回——w-serv-broadcast 1.1.11 前端輪詢每輪亦呼叫 getToken,`nToken` 只計本套件自身與使用端之請求,各〈停止〉測試之語意不變;`linkCtl` 另回傳 `inputs`〔與 `sent` 同序之輸入〕)、`test/tools/clientStopChild.mjs`(真 HTTP 停止測試之前端子行程).
@@ -376,6 +396,15 @@
   - B3 伺服端 instWConverServer 非有效物件之提示:仍為同一固定文字、同一時機(先於其餘設定檢查,其他設定錯誤時仍先輸出再拋錯);`logDetail`／`funLog` 於建構子開頭先解析,無效即拋 `invalid opt.*` 且不輸出(新選項,舊用法不受影響).另:修前提示若 `console.log` 本身拋錯會使建構失敗,現吞下而建構成功(診斷輸出不影響流程,R18 ⑤).
   - B4 token 遮罩:診斷輸出之細節內 token 一律以 `[token]` 取代(含 `logDetail`、`funLog`);前端 `getToken` 被包裝為只記錄(回傳值與呼叫次數不變).
   - 使用端須配合:無(預設相容,不必傳 `funLog`);w-serv-hapi 之 JSDoc 須補 `@param opt.logDetail`、`opt.funLog`(其 `unit-optDoc` 以本套件 JSDoc 對照,同 sysFuncsPublic 之前例);w-web-* 不必傳 `funLog`(本套件預設已不含個資),欲轉送至自己日誌者才傳.
+
+- 2026-10-29(mig-webdata,排程第 161 項:診斷輸出與遮罩改用 wsemi 1.9.31 共用模組;**對比對 `[token]` 字樣、或依賴回傳／事件中後端原錯誤含秘密原文者**,R18):不留舊版相容.
+  - B1 遮罩字樣 `[token]` → `***`(`funLog` 之 detail、`logDetail` 之輸出).下游 w-serv-hapi 之 JSDoc(`WServHapiClient.mjs`、`WServHapiServer.mjs`)與其 `unit-optDoc` 須同步(第 3 波).
+  - B2 遮罩範圍擴大為憑證(網址帳密、password／secret 等鍵名之值、鍵值對),token 簿加上進行中請求之 token(不被 128 個上限淘汰),長度不足 4 之 token 不遮.
+  - B3 預設摘要 `errType` 僅內建類別名(自訂類別名為 `Error`)、`errCode` 僅 wsemi 具名代碼集合(不收整數與任意樣式字串,收 `EAI_AGAIN` 等).
+  - B4 細節拷貝為 `maskDiagCopy`:副本原型為內建、不執行 Proxy 陷阱、Map／Set 複製並遮罩、循環 `[Circular]`、字串超過 20,000 字元截斷接 `…(len=n)`;funLog 回傳之一般 thenable 不再被呼叫 then.
+  - B5 對外錯誤值遮罩(error 事件、前端 reject、伺服端回遠端之 `{ state:'error', msg }`、輪詢 verifyPolling 之拒絕值):含憑證或 token 者改為遮罩副本(Error 保留類別與 code),不含者原樣;固定詞彙拒絕值不遮.**回遠端之 msg 在修前原樣含後端 reject 值(高嚴重度,X62)**.
+  - B6 `src/getDiag.mjs` 刪除(`getOptLog` 型別檢核改為 `genDiag.mjs` 之 `checkOptLog`,行為同;`genTokenBook` 移至 `src/genTokenBook.mjs`);相依 wsemi ^1.9.31.
+  - 使用端須配合:比對 `[token]` 字樣者改 `***`;w-serv-hapi 兩檔 JSDoc 字樣與 `unit-optDoc`.
 
 ## 6. 對標摘要
 

@@ -60,7 +60,8 @@ import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
 import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
 import { bindFuncByPath, getFuncByPath } from './funcPath.mjs'
 import removeListeners from './removeListeners.mjs'
-import { getOptLog, getDiag, getBriefErr, genTokenBook } from './getDiag.mjs'
+import { checkOptLog, genDiag } from './genDiag.mjs'
+import genTokenBook from './genTokenBook.mjs'
 
 
 //isGiven, 有給(不為undefined與null), 有給卻無效之設定須拋錯, 不可靜默改用預設或忽略
@@ -90,8 +91,8 @@ let isGiven = (v) => {
  * @param {Function} [opt.getRefreshTable=null] 輸入取得資料表即將更新之回調函數，有給但非函數時拋錯，預設null
  * @param {Function} [opt.getBeforeUpdateTableTags=null] 輸入取得更新資料表時間戳前之回調函數，有給但非函數時拋錯，預設null
  * @param {Function} [opt.getAfterUpdateTableTags=null] 輸入取得更新資料表時間戳後之回調函數，有給但非函數時拋錯，預設null
- * @param {Boolean} [opt.logDetail=false] 輸入診斷輸出是否還原為完整細節(含資料值與錯誤原文，供除錯)，有給但非布林時拋錯，預設false。本套件僅有一處診斷輸出(停止後才拋錯之回調函數，console.error)，預設只輸出固定標籤'[w-serv-webdata] callback error after stop'與摘要{ hook, errType, errCode }(回調函數名稱、錯誤類別與代碼)，不輸出錯誤原文；設為true時再輸出該錯誤之完整內容。token一律遮罩為'[token]'(logDetail與funLog亦然)：opt.getToken所得者(含輪詢所取，至多最近128個，字串內以子字串比對)、名稱含token、authorization或api-key之鍵的值、Bearer憑證，以及字串內token=、"__sysToken__":"…"等鍵值形式之值；無法辨識之任意文字中的其他token不保證；摘要中的錯誤類別(建構子名稱)與代碼(自有屬性code，限整數或ENOENT、ERR_*樣式)由使用端程式決定，以資料動態命名類別或把使用者識別存入code者不在保證範圍。只涵蓋本套件自身之輸出，不含w-serv-broadcast與w-sync-webdata等下層之輸出
- * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，有給但非函數時拋錯，預設null。給予時診斷輸出只交給它而不寫console：label為固定標籤，safe為不含資料值之摘要，detail為完整細節(該錯誤之拷貝，含資料值與錯誤原文，token已遮罩；無細節者不傳)，供使用端遮罩或轉送；拷貝時函數、RegExp、二進位資料、過深或過大者以標記字串代替，不執行getter(Error的stack除外)，原型物件不複製(原型上的資料屬性不遮罩、可變狀態與原物件共用)；其拋錯與回傳promise之reject皆被吞下，不影響本套件流程
+ * @param {Boolean} [opt.logDetail=false] 輸入診斷輸出是否還原為完整細節(含資料值與錯誤原文，供除錯)，有給但非布林時拋錯，預設false。本套件僅有一處診斷輸出(停止後才拋錯之回調函數，console.error)，預設只輸出固定標籤'[w-serv-webdata] callback error after stop'與摘要{ hook, errType, errCode }(回調函數名稱、錯誤類別與代碼)，不輸出錯誤原文；設為true時再輸出該錯誤之完整內容。憑證與token一律遮罩為'***'(logDetail與funLog亦然，由wsemi之getDiag提供，規則見其R-DIAG-01)：opt.getToken所得者(含輪詢所取，近期至多128個加上進行中請求者，字串內以子字串比對，長度不足4字元者不遮)、名稱含password、secret、token、authorization或api-key之鍵的值、Bearer憑證、網址內之帳密，以及字串內token=、"__sysToken__":"…"等鍵值形式之值；無法辨識之任意文字中的其他token不保證；摘要中的錯誤類別(僅內建錯誤類別名，其餘為Error)與代碼(自有屬性code，限系統與Node之具名錯誤代碼如ENOENT、ECONNREFUSED、ERR_*之內建代碼，不收整數與任意樣式)由wsemi之白名單決定。對外之錯誤值亦遮罩：error事件之錯誤引數與$fapi等請求之拒絕值(伺服端回覆之error訊息、通訊層之錯誤、getToken之拋錯與reject)含上述憑證與token者以'***'取代，不含者原樣(身分不變)；本套件自身以固定詞彙組成之拒絕值(如'stopped by clearBroadcast or clearSync')不經遮罩。只涵蓋本套件自身之輸出，不含w-serv-broadcast與w-sync-webdata等下層之輸出
+ * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，有給但非函數時拋錯，預設null。給予時診斷輸出只交給它而不寫console：label為固定標籤，safe為不含資料值之摘要，detail為完整細節(該錯誤之拷貝，含資料值與錯誤原文，token已遮罩；無細節者不傳)，供使用端遮罩或轉送；拷貝時函數、二進位資料、Promise、過深或過大者以標記字串代替，不執行getter與Proxy陷阱(可偵測時)，副本之原型為內建(不沿用使用端原型)，循環參照以'[Circular]'代替；其拋錯與回傳promise之reject皆被吞下，不影響本套件流程
  * @param {Function} [opt.onTrace=null] 輸入觀察回調函數，格式為(e)=>{}，預設null(未給或非函數時忽略，行為、時序與效能同未提供)，供測試與診斷以事件(而非等待毫秒)同步。本套件自身無計時器，本選項原樣轉交所包之w-serv-broadcast前端之opt.onTrace(1.1.14起)，事件不增不減、欄位與時機以其JSDoc為準；回調同步呼叫、不帶接收者，e為凍結之事件物件{ type, ... }(欄位皆為原始值)，其拋錯與回傳之rejection皆忽略，不影響輪詢與同步。type有：start(輪詢計時器建立，ms為輪詢間隔)、tick(計時器每次觸發，n為已開始之輪數，skipped為前一輪在途而略過)、request(發出第n輪輪詢，token為輸入是否帶token)、result(第n輪結果，ok、reason為'ok'、'invalid'或'error'，早於對應事件之派發)、emit(w-serv-broadcast之事件已排定於1ms後派發，name為事件名，如openOnce、open、broadcast、error)、deliver(事件已派發而監聽器皆已呼叫完，name為事件名，ok為監聽器是否皆未拋錯)、report(改以error事件或console.error通報，src為'listener'或'error'，via為'event'或'console')、stop(clearBroadcast首次呼叫完成，inflight為停止時是否有在途之輪詢)。停止後除停止當下已在進行之那次派發之deliver與report外不再通知。w-sync-webdata之opt.onTrace不轉交
  * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast(停止輪詢)、clearSync(釋放資料同步)停止(見上方說明)
  * @example
@@ -256,14 +257,19 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         }
     }
 
-    //logDetail, funLog, 診斷輸出之設定(見getDiag), 有給卻無效者拋錯
-    let optLog = getOptLog(opt)
+    //logDetail, funLog, 診斷輸出之設定(見genDiag), 有給卻無效者拋錯
+    let optLog = checkOptLog(opt)
 
-    //tokenBook, 近期取得之token(至多128個), 供診斷輸出遮罩: 本套件請求取得token後記錄(executeShell), 輪詢之token經book.watch記錄(交給w-serv-broadcast前端之getToken); 兩處皆只記錄, 不改變getToken之呼叫次數、拋錯與回傳值
+    //tokenBook, 近期取得之token(至多128個)與進行中請求之token(保留至請求結束), 供診斷輸出與對外錯誤值遮罩: 本套件請求取得token後記錄並保留至請求結束(executeShell), 輪詢之token經book.watch記錄(交給w-serv-broadcast前端之getToken); 兩處皆只記錄, 不改變getToken之呼叫次數、拋錯與回傳值
     let book = genTokenBook()
 
-    //diag, 診斷輸出
-    let diag = getDiag(optLog, () => book.tokens)
+    //diag, 診斷輸出(wsemi getDiag之實例, 另帶diag.brief、diag.err); 對外之錯誤值(error事件、reject)為後端、通訊層或使用端回調所給之外來值, 一律經diag.err遮罩token(不含token者原樣交出, 身分不變)
+    let diag = genDiag(optLog, book)
+
+    //toOut, 對外交出之錯誤值: 本套件自身以固定詞彙組成之拒絕值(msgStop, 亦為中止之reason經通訊層原樣回到本套件者)不經遮罩(固定字串經遮罩挖空會讓缺口反推短token), 其餘皆為外來值, 經diag.err
+    let toOut = (v) => {
+        return v === msgStop ? v : diag.err(v)
+    }
 
     //getServerMethods, 必填, 於建構任何元件之前拋錯(原為建構中emit, 呼叫端此時尚未能監聽而遺失)
     let getServerMethods = get(opt, 'getServerMethods', null)
@@ -293,12 +299,12 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         if (isStopped) {
             return
         }
-        evEmit(instWConverClient, 'error', [err])
+        evEmit(instWConverClient, 'error', [toOut(err)])
     }
 
     //callHook, 呼叫使用端之回調函數, 拋錯時改發出error事件, 不中斷本套件之流程(例如refreshTable之pm須照常結束); 停止後不再呼叫
     //回調於自身內停止後才拋錯者, 停止後不再發出error事件, 改以診斷輸出(console.error): 使用端程式之錯誤不可無聲(同w-serv-broadcast停止後之監聽器拋錯)
-    //診斷輸出預設只含回調函數名稱name與錯誤之類別與代碼, 錯誤原文可能夾帶資料值或token, 僅logDetail或funLog收得(見getDiag)
+    //診斷輸出預設只含回調函數名稱name與錯誤之類別與代碼, 錯誤原文可能夾帶資料值或token, 僅logDetail或funLog收得(見genDiag)
     let callHook = (name, fn, ...args) => {
         if (isStopped || !isfun(fn)) {
             return
@@ -308,7 +314,7 @@ function WServWebdataClient(instWConverClient, opt = {}) {
         }
         catch (err) {
             if (isStopped) {
-                diag('[w-serv-webdata] callback error after stop', { hook: name, ...getBriefErr(err) }, () => err, true)
+                diag('[w-serv-webdata] callback error after stop', { hook: name, ...diag.brief(err) }, () => err, 'error')
                 return
             }
             emitError(err)
@@ -387,46 +393,61 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             }
             // console.log('args2', args)
 
-            //token
-            let token = getToken()
-            if (ispm(token)) {
-                token = await token
+            //token, getToken拋錯或reject之值為使用端回調所給之外來值, 經diag.err遮罩token後再拋出(不含token者原樣, 身分不變)
+            let token
+            try {
+                token = getToken()
+                if (ispm(token)) {
+                    token = await token
+                }
             }
-            book.note(token) //記錄取得之token供診斷輸出遮罩(只記錄, 不改變token)
+            catch (err) {
+                throw diag.err(err)
+            }
 
-            //check, 本套件自身之請求於等待token期間已停止者不送出: 尚未交給通訊物件, 送不送由本套件決定; 支援opt.signal之通訊物件其入口亦以已中止之signal拒絕而不送出, 此檢查供不支援者(例如w-converhp 2.1.8之前), 否則伺服器已停時觸發其重試與逐次error
-            if (self &amp;&amp; isStopped) {
-                pm.reject(msgStop)
+            //release, 記錄取得之token供診斷輸出與對外錯誤值遮罩(只記錄, 不改變token), 保留至本請求結束(finally), 使進行中請求之token不被近期上限(128個)淘汰而漏遮
+            let release = book.hold(token)
+
+            try {
+
+                //check, 本套件自身之請求於等待token期間已停止者不送出: 尚未交給通訊物件, 送不送由本套件決定; 支援opt.signal之通訊物件其入口亦以已中止之signal拒絕而不送出, 此檢查供不支援者(例如w-converhp 2.1.8之前), 否則伺服器已停時觸發其重試與逐次error
+                if (self &amp;&amp; isStopped) {
+                    pm.reject(msgStop)
+                    return pm
+                }
+
+                //check, 若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
+                if (!isestr(token)) {
+                    token = ''
+                }
+
+                //input
+                let input = { __sysInputArgs__: args, __sysToken__: token }
+
+                //execute, 本套件自身之請求帶acSelf之signal(停止時中止, 以msgStop拒絕, 通訊物件不再為其重試、發出error與呼叫getToken); 使用端之請求不帶(給undefined, w-converhp取其預設{}), 不受停止影響
+                //通訊物件不支援opt.signal者(execute只收3參數)忽略之, 行為同未中止前
+                //拒絕值(伺服端回覆之error訊息、通訊層之錯誤)為外來值, 經diag.err遮罩token(含token者才改為副本)
+                await instWConverClient.execute(func, input, fprog, self ? { signal: acSelf.signal } : undefined)
+                    .then((r) => {
+                        // console.log('instWConverClient.execute then', r)
+                        let res = r.msg
+                        if (r.state === 'success') {
+                            pm.resolve(res)
+                        }
+                        else {
+                            pm.reject(toOut(res))
+                        }
+                    })
+                    .catch((err) => {
+                        // console.log('instWConverClient.execute catch', err)
+                        pm.reject(toOut(err))
+                    })
+
                 return pm
             }
-
-            //check, 若允許undefined會導致傳輸input時欄位__sysToken__消失, 故強制取代為空字串
-            if (!isestr(token)) {
-                token = ''
+            finally {
+                release()
             }
-
-            //input
-            let input = { __sysInputArgs__: args, __sysToken__: token }
-
-            //execute, 本套件自身之請求帶acSelf之signal(停止時中止, 以msgStop拒絕, 通訊物件不再為其重試、發出error與呼叫getToken); 使用端之請求不帶(給undefined, w-converhp取其預設{}), 不受停止影響
-            //通訊物件不支援opt.signal者(execute只收3參數)忽略之, 行為同未中止前
-            await instWConverClient.execute(func, input, fprog, self ? { signal: acSelf.signal } : undefined)
-                .then((r) => {
-                    // console.log('instWConverClient.execute then', r)
-                    let res = r.msg
-                    if (r.state === 'success') {
-                        pm.resolve(res)
-                    }
-                    else {
-                        pm.reject(res)
-                    }
-                })
-                .catch((err) => {
-                    // console.log('instWConverClient.execute catch', err)
-                    pm.reject(err)
-                })
-
-            return pm
         }
         return f
     }
@@ -577,7 +598,7 @@ function WServWebdataClient(instWConverClient, opt = {}) {
                 input.pm.resolve(data)
             }, (err) => {
                 // console.log(`${input.tableName}.select: catch`, err)
-                input.pm.reject(err)
+                input.pm.reject(toOut(err)) //select可能為使用端替換之函數, 其拒絕值亦為外來值; 停止時在途者之拒絕值為msgStop(固定詞彙)
             })
 
     })
@@ -620,7 +641,7 @@ export default WServWebdataClient
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Thu Oct 29 2026 19:32:03 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Thu Oct 29 2026 20:40:26 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

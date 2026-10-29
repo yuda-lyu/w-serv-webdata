@@ -6,14 +6,16 @@ import { inspect } from 'util'
 import evem from 'wsemi/src/evem.mjs'
 import WServWebdataServer from '../src/WServWebdataServer.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
-import { getOptLog, getDiag, getBriefErr, genTokenBook, cpDetail } from '../src/getDiag.mjs'
+import { checkOptLog, genDiag } from '../src/genDiag.mjs'
+import genTokenBook from '../src/genTokenBook.mjs'
 import { genTracer, flush, drain } from './tools/tracer.mjs'
 import { hookNames, genRun, linkCtl } from './tools/clientHarness.mjs'
 
 
 //同步以事件而非等待毫秒: 等回調被呼叫(log.tr之hook事件)、等通訊物件收到請求(linkCtl之tr)、等error事件(deliver或error事件)等; 肯定事件之後以drain讓診斷輸出與已排定之微任務、1ms脫勾派發跑完, 再斷言「無額外輸出」「無unhandledRejection」
-//診斷輸出(R18): 預設只輸出固定標籤與不含資料值之摘要, opt.logDetail還原完整細節, opt.funLog取代console收完整細節, token一律遮罩, 回傳與事件契約不變
+//診斷輸出(R18, R-DIAG-01): 預設只輸出固定標籤與不含資料值之摘要, opt.logDetail還原完整細節, opt.funLog取代console收完整細節, 憑證與token一律遮罩為'***', 回傳與事件契約不變
 //本套件實際會執行之診斷輸出共2處: 前端callHook於停止後才拋錯(console.error), 伺服端instWConverServer非有效物件(console.log, 固定文字)
+//本檔為接線測試(確認站點有接上wsemi之getDiag、選項檢核與事件契約); 遮罩與摘要之形態案(字串樣式、細節拷貝、代碼白名單等)由wsemi共用語料驅動, 見unit-diagcorpus; 對外錯誤值之遮罩見unit-diagmask
 describe('unit-diaglog', function() {
 
     //fdTmp, 本測試暫存檔之專用資料夾, 測完即刪
@@ -194,7 +196,7 @@ describe('unit-diaglog', function() {
             }
         })
 
-        it('getOptLog: 回傳固定快照, 讀取opt一次(getter前後不同不影響)', function() {
+        it('checkOptLog: 回傳固定快照, 讀取opt一次(getter前後不同不影響); 型別檢核於建構子(行為同舊版getOptLog)', function() {
             let n = 0
             let f = () => {}
             let opt = {
@@ -204,10 +206,12 @@ describe('unit-diaglog', function() {
                 },
                 funLog: f,
             }
-            assert.strict.deepEqual(getOptLog(opt), { logDetail: true, funLog: f })
+            assert.strict.deepEqual(checkOptLog(opt), { logDetail: true, funLog: f })
             assert.strict.equal(n, 1)
-            assert.strict.deepEqual(getOptLog(undefined), { logDetail: false, funLog: null })
-            assert.strict.deepEqual(getOptLog({ logDetail: null, funLog: null }), { logDetail: false, funLog: null })
+            assert.strict.deepEqual(checkOptLog(undefined), { logDetail: false, funLog: null })
+            assert.strict.deepEqual(checkOptLog({ logDetail: null, funLog: null }), { logDetail: false, funLog: null })
+            assert.throws(() => checkOptLog({ logDetail: 'true' }), { message: 'invalid opt.logDetail' })
+            assert.throws(() => checkOptLog({ funLog: {} }), { message: 'invalid opt.funLog' })
         })
 
     })
@@ -295,9 +299,9 @@ describe('unit-diaglog', function() {
                 [() => undefined, { errType: 'undefined' }],
                 [() => ({ id: ID, name: NAME }), { errType: 'object' }],
                 [() => [ID], { errType: 'object' }],
-                [() => e1, { errType: 'MyErr', errCode: 'ENOENT' }],
+                [() => e1, { errType: 'Error', errCode: 'ENOENT' }], //使用端自訂之類別名不列(wsemi getDiagBriefErr: 僅內建錯誤類別名, 其餘為Error)
                 [() => e2, { errType: 'Error' }],
-                [() => e3, { errType: 'Error', errCode: 404 }],
+                [() => e3, { errType: 'Error' }], //整數代碼不收(wsemi getDiagBriefErr: 只收具名集合內者, 本套件未宣告含整數之集合)
                 [() => e4, { errType: 'Error' }],
                 [() => e5, { errType: 'Error' }],
                 [() => e6, { errType: 'Error' }],
@@ -311,31 +315,28 @@ describe('unit-diaglog', function() {
             }
         })
 
-        //機器代碼樣式矩陣: 不符者(email、含點或連字號之識別、過短、過大之整數、結尾夾帶空白、非字串非整數)不進摘要
-        it('getBriefErr: code樣式矩陣(符合機器代碼樣式者才列出)', function() {
+        //摘要之單一定義在wsemi之getDiagBriefErr(形態案見共用語料C系列, unit-diagcorpus); 此處只確認本套件接上: diag.brief與站點實際輸出一致, 代碼限具名集合
+        it('diag.brief: 接上wsemi之getDiagBriefErr(代碼限具名集合, 不收樣式相符之任意字串與整數)', async function() {
+            this.timeout(60000)
+            let diag = genDiag({ logDetail: false, funLog: null }, genTokenBook())
             let mk = (c) => {
                 let e = new Error(TEXT)
                 e.code = c
                 return e
             }
-            for (let c of ['alice@example.com', 'alice+private@example.test', 'a@b.c', 'user.7421', `code-${ID}`, 'E1', 'ERR_', 'ENOENT ', 'eNOENT', 'ERR_lower', 100000, -100000, 1.5, NaN, Infinity, true, {}, [], null, undefined, `E${'A'.repeat(16)}`, `ERR_${'A'.repeat(41)}`]) {
-                assert.strict.deepEqual(getBriefErr(mk(c)), { errType: 'Error' }, String(c))
+            for (let c of ['ENOENT', 'ECONNREFUSED', 'EAI_AGAIN', 'ERR_INVALID_ARG_TYPE']) {
+                assert.strict.deepEqual(diag.brief(mk(c)), { errType: 'Error', errCode: c }, String(c))
             }
-            for (let c of [-4058, 0, 404, 99999, -99999, 'EACCES', 'ENOENT', 'ERR_INVALID_ARG_TYPE', 'E12', `E${'A'.repeat(15)}`, `ERR_${'A'.repeat(40)}`]) {
-                assert.strict.deepEqual(getBriefErr(mk(c)), { errType: 'Error', errCode: c }, String(c))
+            for (let c of ['alice@example.com', `code-${ID}`, 'E123456789', 'ERR_ACCOUNT_ALICE01', 'EMP04', 404, 12345, 99999, null, {}]) {
+                assert.strict.deepEqual(diag.brief(mk(c)), { errType: 'Error' }, String(c))
             }
-            //建構子名稱: 符合識別字樣式才列出, 過長或含非識別字元者取Error
-            class Good extends Error {}
-            assert.strict.equal(getBriefErr(new Good(TEXT)).errType, 'Good')
-            for (let nm of ['has space', 'dash-name', `A${'b'.repeat(40)}`, '1abc', '', `u@${ID}`]) {
-                class X extends Error {}
-                Object.defineProperty(X, 'name', { value: nm })
-                assert.strict.equal(getBriefErr(new X(TEXT)).errType, 'Error', nm)
-            }
+            //站點實際輸出之摘要與diag.brief一致
+            let { entries } = await runStop({ makeErr: () => mk('ECONNREFUSED') })
+            assert.strict.deepEqual(entries[0], [LABEL, { hook: 'recvData', errType: 'Error', errCode: 'ECONNREFUSED' }])
         })
 
-        //已知token恰為類別名稱或代碼時, 摘要內亦遮罩(token一律不得出現)
-        it('摘要內已知token亦遮罩(token恰為code)', async function() {
+        //摘要是固定詞彙(類別與白名單代碼), 不做文字遮罩(對固定字串挖空會讓缺口反推短密碼); token恰為自訂代碼時因不在白名單而不列出, 故不外漏
+        it('token恰為自訂code(或數值code): 不在白名單內, 摘要不列出, 輸出不含該token', async function() {
             this.timeout(30000)
             let SECRET_CODE = 'ERR_SECRETTOK9'
             let { entries, all } = await runStop({
@@ -346,7 +347,7 @@ describe('unit-diaglog', function() {
                 },
                 opt: { getToken: () => SECRET_CODE },
             })
-            assert.strict.deepEqual(entries[0], [LABEL, { hook: 'recvData', errType: 'Error', errCode: '[token]' }])
+            assert.strict.deepEqual(entries[0], [LABEL, { hook: 'recvData', errType: 'Error' }])
             assert.strict.equal(dump(all).includes(SECRET_CODE), false)
             //數值之code恰等於已知token(以字串形式比對)時亦遮罩
             let r2 = await runStop({
@@ -357,25 +358,7 @@ describe('unit-diaglog', function() {
                 },
                 opt: { getToken: () => '94821' },
             })
-            assert.strict.deepEqual(r2.entries[0], [LABEL, { hook: 'recvData', errType: 'Error', errCode: '[token]' }])
-        })
-
-        it('getBriefErr: 全程不執行getter, 任意輸入皆不拋錯', function() {
-            let e = new Error(TEXT)
-            Object.defineProperty(e, 'constructor', {
-                get() {
-                    throw new Error('getter executed')
-                },
-            })
-            assert.strict.deepEqual(getBriefErr(e), { errType: 'Error' })
-            let trap = () => {
-                throw new Error('trap')
-            }
-            let p = new Proxy({}, { getPrototypeOf: trap, getOwnPropertyDescriptor: trap, has: trap })
-            assert.strict.deepEqual(getBriefErr(p), { errType: 'unknown' })
-            assert.strict.deepEqual(getBriefErr(Symbol('s')), { errType: 'symbol' })
-            assert.strict.deepEqual(getBriefErr(10n), { errType: 'bigint' })
-            assert.strict.deepEqual(getBriefErr(() => {}), { errType: 'function' })
+            assert.strict.deepEqual(r2.entries[0], [LABEL, { hook: 'recvData', errType: 'Error' }])
         })
 
     })
@@ -403,7 +386,7 @@ describe('unit-diaglog', function() {
             assert.strict.deepEqual(safe, { hook: 'recvData', errType: 'Error' })
             assert.strict.notEqual(detail, err0, '拷貝, 不交出原參照')
             assert.strict.equal(detail instanceof Error, true)
-            assert.strict.equal(detail.message, `${TEXT} for ${ID} data=${JSON.stringify({ id: ID, name: NAME })} token=[token]`, '含原文、id與資料值, 僅token遮罩')
+            assert.strict.equal(detail.message, `${TEXT} for ${ID} data=${JSON.stringify({ id: ID, name: NAME })} token=***`, '含原文、id與資料值, 僅token遮罩')
             assert.strict.equal(detail.userId, ID)
             assert.strict.deepEqual(detail.row, { id: ID, name: NAME })
             assert.strict.equal(typeof detail.stack, 'string')
@@ -432,12 +415,12 @@ describe('unit-diaglog', function() {
             for (let x of [TOKEN, 'abc.def.ghi', 'zzz-9', 'other-token-value', 'at-1', 'h-1', 'in-array']) {
                 assert.strict.equal(s.includes(x), false, `${x}不得出現`)
             }
-            assert.strict.equal(detail.message.includes('[token]'), true)
+            assert.strict.equal(detail.message.includes('***'), true)
             assert.strict.equal(detail.message.includes(ID), true, '非token之id保留')
-            assert.strict.equal(detail.token, '[token]')
+            assert.strict.equal(detail.token, '***')
             assert.strict.equal(detail.headers.cookie, 'k')
             assert.strict.equal(detail.cause instanceof Error, true)
-            assert.strict.equal(detail.cause.message, 'cause [token]')
+            assert.strict.equal(detail.cause.message, 'cause ***')
         })
 
         it('funLog拋錯或回傳reject之promise: 吞下, 不發出error、不使流程中斷、無unhandledRejection', async function() {
@@ -509,7 +492,7 @@ describe('unit-diaglog', function() {
             assert.strict.equal(entries[0].length, 2, '同舊版: (label, err)')
             let e = entries[0][1]
             assert.strict.equal(e instanceof Error, true)
-            assert.strict.equal(e.message, `${TEXT} for ${ID} data=${JSON.stringify({ id: ID, name: NAME })} token=[token]`)
+            assert.strict.equal(e.message, `${TEXT} for ${ID} data=${JSON.stringify({ id: ID, name: NAME })} token=***`)
             assert.strict.equal(e.stack.includes(TEXT), true, '堆疊保留')
             assert.strict.equal(e.stack.includes(TOKEN), false)
             assert.strict.equal(dump(entries).includes(TOKEN), false)
@@ -536,8 +519,8 @@ describe('unit-diaglog', function() {
                 ['long', `L${'y'.repeat(2048)}`, (t) => t],
                 ['boxed', 'BOXED-SECRET-77', (t) => new String(t)],
                 ['foreign-realm boxed', 'FOREIGN-BOX-SECRET-78', (t) => vm.runInNewContext(`new String(${JSON.stringify(t)})`)],
-                ['20000 chars', `L${'z'.repeat(20000)}`, (t) => t],
-                ['marker', 'abc[token]xyz-SECRET', (t) => t],
+                ['19000 chars', `L${'z'.repeat(19000)}`, (t) => t],
+                ['marker', 'abc***xyz-SECRET', (t) => t],
             ]
             for (let [name, tok, wrap] of cases) {
                 let { entries } = await runStop({
@@ -546,9 +529,17 @@ describe('unit-diaglog', function() {
                 })
                 assert.strict.equal(entries.length, 1, name)
                 let e = entries[0][1]
-                assert.strict.equal(e.message, 'leak [token] end', name)
+                assert.strict.equal(e.message, 'leak *** end', name)
                 assert.strict.equal(e.stack.includes(tok), false, name)
             }
+            //超過20,000字元者: wsemi只輸出原文位置20,000之前之內容並接…(len=原長)(見其maskDiagText), 跨截點之token在窗內被遮, 輸出不含token之任何片段
+            let tokLong = `L${'z'.repeat(20000)}`
+            let { entries } = await runStop({
+                makeErr: () => new Error(`leak ${tokLong} end`),
+                opt: { logDetail: true, getToken: () => tokLong },
+            })
+            assert.strict.equal(entries[0][1].message, 'leak ***…(len=20010)')
+            assert.strict.equal(entries[0][1].stack.includes('zzzzz'), false)
         })
 
         it('已知token涵蓋同步、非同步與每次不同之token', async function() {
@@ -572,7 +563,7 @@ describe('unit-diaglog', function() {
                 assert.strict.equal(vals.length >= 2, true, `${kind}: 輪詢與請求皆取過token`)
                 assert.strict.equal(e.message.includes('tk-SECRET'), false, kind)
                 assert.strict.equal(e.stack.includes('tk-SECRET'), false, kind)
-                assert.strict.equal(e.message.includes('[token]'), true, kind)
+                assert.strict.equal(e.message.includes('***'), true, kind)
             }
         })
 
@@ -607,12 +598,14 @@ describe('unit-diaglog', function() {
             assert.strict.deepEqual(outs[0].r, [{ id: 'row-of-tabA.select' }])
         })
 
-        it('未停止時回調拋錯: error事件為原錯誤(同一參照), 無診斷輸出, 不論選項', async function() {
+        //不含憑證與token者原樣交出(身分不變, 對外錯誤值只遮憑證); 含憑證者改為遮罩後之副本, 見unit-diagmask
+        it('未停止時回調拋錯: 不含憑證之error事件為原錯誤(同一參照), 無診斷輸出, 不論選項', async function() {
             this.timeout(60000)
             let configs = [{}, { logDetail: true }, { funLog: genFunLog() }]
             for (let opt of configs) {
                 let { cl } = linkCtl()
-                let err0 = mkErr()
+                let err0 = new Error(`${TEXT} for ${ID} data=${JSON.stringify({ id: ID, name: NAME })}`)
+                err0.userId = ID
                 let { logged, restore } = capture()
                 let log = null
                 try {
@@ -973,202 +966,9 @@ describe('unit-diaglog', function() {
     })
 
 
-    describe('getDiag / cpDetail', function() {
+    describe('genTokenBook: 近期token與進行中請求之token', function() {
 
-        it('cpDetail: 不改動原物件、不執行getter、循環與過大不無限展開', function() {
-            let n = 0
-            let o = {
-                id: ID,
-                token: 'tk-1',
-                get g() {
-                    n++
-                    return 'getter-secret'
-                },
-                nested: {
-                    list: [1, { authorization: 'Bearer x-1', ok: 'keep' }],
-                    map: new Map([['k', `v ${TOKEN}`]]),
-                    set: new Set([`s ${TOKEN}`]),
-                    d: new Date(0),
-                },
-                bin: new Uint8Array(4),
-                fn: () => {},
-                re: /x/,
-            }
-            o.self = o
-            let r = cpDetail(o, [TOKEN])
-            assert.strict.equal(n, 0, '不執行getter')
-            assert.strict.equal(r.g, '[Getter/Setter]')
-            assert.strict.equal(r.token, '[token]')
-            assert.strict.equal(r.id, ID)
-            assert.strict.equal(r.nested.list[1].authorization, '[token]')
-            assert.strict.equal(r.nested.list[1].ok, 'keep')
-            assert.strict.deepEqual([...r.nested.map], [['k', 'v [token]']])
-            assert.strict.deepEqual([...r.nested.set], ['s [token]'])
-            assert.strict.equal(r.nested.d.getTime(), 0)
-            assert.strict.equal(r.bin, '[Binary 4 bytes]')
-            assert.strict.equal(r.fn, '[Function]')
-            assert.strict.equal(r.re, '[RegExp]')
-            assert.strict.equal(typeof r.self, 'object', '循環以有限深度展開')
-            assert.strict.equal(dump(r).includes('[Truncated]'), true)
-            assert.strict.equal(o.token, 'tk-1', '原物件不變')
-            assert.strict.equal(o.nested.map.get('k'), `v ${TOKEN}`)
-            let big = {}
-            for (let i = 0; i < 7000; i++) {
-                big[`k${i}`] = i
-            }
-            assert.strict.equal(Object.keys(cpDetail(big, [])).length <= 5000, true)
-        })
-
-        it('字串樣式: Bearer、JSON、物件字面、URL查詢字串之token值遮罩, 其餘保留, 已遮罩者不重複遮罩', function() {
-            let s = cpDetail('a Bearer abc.def-1= b {"__sysToken__":"zzz"} {__sysToken__: \'yyy\'} ?token=xxx&k=1 access_token=w1 refresh_token=w2 tokens: 3 name=peter token=[token]', [])
-            for (let x of ['abc.def-1', 'zzz', 'yyy', 'xxx', 'w1', 'w2']) {
-                assert.strict.equal(s.includes(x), false, x)
-            }
-            assert.strict.equal(s.includes('&k=1'), true)
-            assert.strict.equal(s.includes('name=peter'), true)
-            assert.strict.equal(s.includes('tokens: 3'), true)
-            assert.strict.equal(s.endsWith('token=[token]'), true)
-        })
-
-        it('已知token: 互為前綴者長者優先、短token(如tok)不破壞token=等樣式且不截入遮罩字樣、鍵名與Map鍵亦遮罩', function() {
-            let s = cpDetail('x tk-long-1234 y token=abc-7 z tk', ['tk', 'tk-long-1234'])
-            assert.strict.equal(s, 'x [token] y token=[token] z [token]')
-            //已知token恰為字樣之一部分(如'tok'為'token'之前段)時, 鍵值樣式優先(單次掃描於同一位置先試樣式), 'token='字樣不被截壞且真正的token值不外漏; 其餘位置之相同片段仍遮罩
-            assert.strict.equal(cpDetail('token=tk-9 name', ['tok']), 'token=[token] name')
-            assert.strict.equal(cpDetail('a tok b stoker', ['tok']), 'a [token] b s[token]er')
-            let r = cpDetail({ [TOKEN]: 1, map: new Map([['token', 'mv'], [TOKEN, 'v2'], ['k', 'keep']]) }, [TOKEN])
-            assert.strict.deepEqual(Object.keys(r).sort(), ['[token]', 'map'])
-            assert.strict.deepEqual([...r.map], [['token', '[token]'], ['[token]', 'v2'], ['k', 'keep']])
-            //樣式特殊字元之token(正規式元字元)逐字比對
-            assert.strict.equal(cpDetail('a+b(c)[d]*e?^$|\\ end', ['a+b(c)[d]*e?^$|\\']), '[token] end')
-        })
-
-        //字串樣式(外審補): 引號值含空白、無引號值含逗號、Authorization帶scheme、x-api-key、cookie中的token、未結束之引號; 一般文字中的Token/Basic等字不誤傷
-        it('字串樣式: 引號值、逗號值、Authorization scheme、api-key、cookie、未結束之引號', function() {
-            let cases = [
-                ['token="abc def ghi" end', 'token="[token]" end'],
-                ['token=\'abc def\' end', 'token=\'[token]\' end'],
-                ['token=part1,part2 end', 'token=[token] end'],
-                ['Authorization: Basic VERYSECRET end', 'Authorization: [token] end'],
-                ['authorization=Bearer abc.def end', 'authorization=[token] end'],
-                ['x-api-key=KEYSECRET&k=1', 'x-api-key=[token]&k=1'],
-                ['API_KEY: K1', 'API_KEY: [token]'],
-                ['cookie: a=b; token=xyz; c=d', 'cookie: a=b; token=[token]; c=d'],
-                ['{"token":"a","x":1}', '{"token":"[token]","x":1}'],
-                ['mytoken=zzz; accessToken: "q q"', 'mytoken=[token]; accessToken: "[token]"'],
-                ['token="unterminated tail', 'token="[token]"'],
-                ['Bearer abc.def-1= end', 'Bearer [token] end'],
-                ['bearer lower.case end', 'bearer [token] end'],
-                ['invalid token provided; Basic validation failed; Token expired', 'invalid token provided; Basic validation failed; Token expired'],
-                ['token=[token] again', 'token=[token] again'],
-                ['token=[token]SECRET end', 'token=[token] end'], //值只是以遮罩字樣開頭, 不視為已遮罩
-                ['token="abc\\\nSECRET" end', 'token="[token]" end'], //引號值內的反斜線接換行
-                ['notBearer ordinary text', 'notBearer ordinary text'], //Bearer須為獨立單字
-                ['(Bearer abc.def) end', '(Bearer [token]) end'],
-                ['__SYSTOKEN__=CASE_SECRET end', '__SYSTOKEN__=[token] end'], //鍵名不分大小寫
-            ]
-            for (let [s, expected] of cases) {
-                assert.strict.equal(cpDetail(s, []), expected, s)
-                assert.strict.equal(cpDetail(expected, []), expected, `冪等 ${s}`)
-            }
-        })
-
-        it('已知token的特殊形式: 含遮罩字樣、很長、包裝字串、Symbol鍵、Map值', function() {
-            //已知token本身含'[token]'字樣, 仍整個遮罩(單次掃描, 不以遮罩字樣切段)
-            assert.strict.equal(cpDetail('value abc[token]xyz end', ['abc[token]xyz']), 'value [token] end')
-            //很長之已知token(不得因長度被略過)
-            for (let n of [5000, 20000, 200000]) {
-                let long = `L${'x'.repeat(n)}`
-                assert.strict.equal(cpDetail(`a ${long} b`, [long]), 'a [token] b', String(n))
-            }
-            //合計過大(100個各約1000字元)時超出比對式容量者改以切割取代, 全部仍遮罩(比對式過大會被引擎拒絕)
-            let many = Array.from({ length: 100 }, (_, i) => `T${i}-${'q'.repeat(1000)}`)
-            assert.strict.equal(cpDetail(`x ${many[0]} y ${many[99]} z ${many[50]}`, many), 'x [token] y [token] z [token]')
-            //Bearer被判為單字之一部分時, 其中的已知token仍遮罩; 數值與bigint恰等於已知token者遮罩
-            assert.strict.equal(cpDetail('notBearer abc end', ['abc']), 'notBearer [token] end')
-            assert.strict.deepEqual(cpDetail({ a: 94821, b: 94822, c: 5n, d: 6n }, ['94821', '5']), { a: '[token]', b: 94822, c: '[token]', d: 6n })
-            //Symbol之描述與值內若含已知token, 以遮罩後之描述另建Symbol; Map的Symbol敏感鍵之值遮罩
-            let sk = Symbol('S3CR3T_SYM')
-            let rs = cpDetail({ [sk]: 1, v: Symbol('has S3CR3T_SYM') }, ['S3CR3T_SYM'])
-            assert.strict.deepEqual(Object.getOwnPropertySymbols(rs).map((k) => k.description), ['[token]'])
-            assert.strict.equal(rs.v.description, 'has [token]')
-            assert.strict.deepEqual([...cpDetail(new Map([[Symbol('accessToken'), 'MAP_VALUE_SECRET'], [Symbol('plain'), 'keep']]), []).values()], ['[token]', 'keep'])
-            //跨realm的包裝字串整體遮罩(不逐字元複製)
-            let fb = vm.runInNewContext('new String("REALM_SECRET")')
-            assert.strict.equal(cpDetail(fb, ['REALM_SECRET']), '[token]')
-            assert.strict.equal(cpDetail({ x: fb }, []).x, 'REALM_SECRET', '無已知token時取字串值')
-            //二進位長度以內建getter讀取(不執行實例上自訂之byteLength)
-            let u8 = new Uint8Array(4)
-            let nBl = 0
-            Object.defineProperty(u8, 'byteLength', {
-                get() {
-                    nBl++
-                    return 99
-                },
-            })
-            assert.strict.equal(cpDetail(u8, []), '[Binary 4 bytes]')
-            assert.strict.equal(nBl, 0)
-            //Symbol鍵之值依鍵描述遮罩; 包裝字串取其值
-            let o = { [Symbol('accessToken')]: 'SYM', [Symbol('plain')]: 'keep', s: new String('BOXED'), n: new Number(5), b: new Boolean(false) }
-            let r = cpDetail(o, ['BOXED'])
-            let syms = Object.getOwnPropertySymbols(r)
-            assert.strict.deepEqual(syms.map((k) => [k.description, r[k]]), [['accessToken', '[token]'], ['plain', 'keep']])
-            assert.strict.equal(r.s, '[token]')
-            assert.strict.equal(r.n, 5)
-            assert.strict.equal(r.b, false)
-        })
-
-        //外審補: 複製時不執行使用端的getter與Symbol.toStringTag; Error的stack僅執行內建存取器; 跨realm的Error以一般物件複製(保留message與stack)
-        it('cpDetail: 不執行使用端getter與toStringTag、跨realm的Error保留內容、深度恰8層', function() {
-            let n = 0
-            let e = new Error('E1')
-            Object.defineProperty(e, 'stack', {
-                get() {
-                    n++
-                    return 'custom stack'
-                },
-                configurable: true,
-            })
-            let tagged = {
-                get [Symbol.toStringTag]() {
-                    n++
-                    return 'X'
-                },
-                a: 1,
-            }
-            let r = cpDetail([e, tagged], [])
-            assert.strict.equal(n, 0, '自訂getter與toStringTag皆不執行')
-            assert.strict.equal(r[0].stack, '[Getter/Setter]')
-            assert.strict.equal(r[1].a, 1)
-            //內建stack仍取得(含message字樣), 且為資料屬性
-            let e2 = new Error(TEXT)
-            let r2 = cpDetail(e2, [])
-            assert.strict.equal(r2.stack.includes(TEXT), true)
-            assert.strict.equal(Object.getOwnPropertyDescriptor(r2, 'stack').value, r2.stack)
-            //跨realm
-            let fe = vm.runInNewContext('new Error("FOREIGN")')
-            let rf = cpDetail(fe, [])
-            assert.strict.equal(rf.message, 'FOREIGN')
-            assert.strict.equal(typeof rf.stack, 'string')
-            //深度: 恰8層物件被複製, 第9層(深度8)以標記代替
-            let chain = {}
-            let cur = chain
-            for (let i = 0; i < 12; i++) {
-                cur.n = {}
-                cur = cur.n
-            }
-            let rc = cpDetail(chain, [])
-            let depth = 0
-            let p = rc
-            while (p !== null && typeof p === 'object') {
-                p = p.n
-                depth++
-            }
-            assert.strict.equal(depth, 8)
-            assert.strict.equal(p, '[Truncated]')
-        })
-
-        it('genTokenBook: 至多記住最近128個、包裝字串取值、非字串與空字串不記錄; watch原樣交還', async function() {
+        it('至多記住最近128個、包裝字串取值、非字串與空字串不記錄; watch原樣交還', async function() {
             let b = genTokenBook()
             for (let i = 0; i < 200; i++) {
                 b.note(`tk-${i}`)
@@ -1220,71 +1020,116 @@ describe('unit-diaglog', function() {
             assert.strict.deepEqual(b2.tokens, ['plain', 'pm'])
         })
 
-        it('getDiag: funLog回傳自回傳之thenable時, then之呼叫次數有上限(不遞迴到堆疊耗盡)', function() {
-            let n = 0
-            let th = {
-                then() {
-                    n++
-                    return th
-                },
+        //X54(設計diag-run01 §6.10): 進行中請求之token保留至請求結束, 不被近期128個之上限淘汰
+        it('hold: 進行中之token不被128個上限淘汰, release後回到近期規則; release可重複呼叫、同值可多次hold', function() {
+            let b = genTokenBook()
+            let rel = b.hold('INFLIGHT-TOKEN-1')
+            let rel2 = b.hold('INFLIGHT-TOKEN-1') //同一token兩個進行中請求
+            for (let i = 0; i < 300; i++) {
+                b.note(`other-${i}`)
             }
-            getDiag({ logDetail: false, funLog: () => th })('l', undefined)
-            assert.strict.equal(n >= 1 && n <= 8, true, String(n))
+            assert.strict.equal(b.tokens.includes('INFLIGHT-TOKEN-1'), false, '已被近期上限淘汰')
+            assert.strict.equal(b.list().includes('INFLIGHT-TOKEN-1'), true, '但進行中者仍在清單')
+            assert.strict.equal(b.list().length, 129)
+            rel()
+            rel() //重複呼叫無作用, 不多減
+            assert.strict.equal(b.list().includes('INFLIGHT-TOKEN-1'), true, '另一個請求仍在進行')
+            rel2()
+            assert.strict.equal(b.list().includes('INFLIGHT-TOKEN-1'), false)
+            assert.strict.equal(b.list().length, 128)
+            //空字串與非字串: 不記錄, release為空操作
+            for (let v of ['', null, undefined, 5, {}]) {
+                b.hold(v)()
+            }
+            assert.strict.equal(b.list().length, 128)
+            //包裝字串取其字串值; hold亦記入近期清單
+            let rb = b.hold(new String('BOXED-HELD'))
+            assert.strict.equal(b.tokens.at(-1), 'BOXED-HELD')
+            rb()
         })
 
-        it('getDiag: console拋錯、getDetail拋錯皆不使呼叫端拋錯', function() {
-            let org = console.error
-            console.error = () => {
-                throw new Error('console boom')
+        it('secrets: 回傳getDiagSecrets之結果; 成員未變時沿用同一份凍結結果, 成員變動(新增、淘汰、hold、release)後重算', function() {
+            let b = genTokenBook()
+            let s0 = b.secrets()
+            assert.strict.equal(b.secrets(), s0, '空清單亦沿用')
+            b.note('tk-SECRET-8841')
+            let s1 = b.secrets()
+            assert.strict.notEqual(s1, s0)
+            assert.strict.equal(s1.reject.includes('tk-SECRET-8841'), true)
+            assert.strict.equal(s1.detail.includes('tk-SECRET-8841'), true)
+            assert.strict.equal(Object.isFrozen(s1.reject), true)
+            b.note('tk-SECRET-8841') //重複取得而移至尾端: 成員未變
+            assert.strict.equal(b.secrets(), s1)
+            let rel = b.hold('tk-HELD-0001')
+            let s2 = b.secrets()
+            assert.strict.notEqual(s2, s1)
+            assert.strict.equal(s2.reject.includes('tk-HELD-0001'), true)
+            rel()
+            let s3 = b.secrets()
+            assert.strict.notEqual(s3, s2)
+            assert.strict.equal(s3.reject.includes('tk-HELD-0001'), true, '仍在近期清單(hold時亦記入近期)')
+            for (let i = 0; i < 200; i++) {
+                b.note(`flood-${i}-xxxx`)
             }
-            try {
-                let d = getDiag({ logDetail: true, funLog: null })
-                d('l', { a: 1 }, () => ({ x: 1 }), true)
-                d('l', { a: 1 }, () => {
-                    throw new Error('detail boom')
-                }, true)
-            }
-            finally {
-                console.error = org
-            }
-            let calls = []
-            let d2 = getDiag({
-                logDetail: false,
-                funLog: (...a) => {
-                    calls.push(a)
-                },
-            })
-            d2('l', { a: 1 }, () => {
-                throw new Error('detail boom')
-            })
-            assert.strict.deepEqual(calls, [['l', { a: 1 }, '(unprintable)']])
+            let s4 = b.secrets()
+            assert.strict.equal(s4.reject.includes('tk-SECRET-8841'), false, '被淘汰者離開清單')
+            assert.strict.equal(b.secrets(), s4)
         })
 
     })
 
 
-    describe('盤點: src內除getDiag外不直接呼叫console(R18)', function() {
+    describe('盤點: src內診斷輸出之出口(R18, R-DIAG-01)', function() {
 
-        //盤點指令: 見規則帳本R18
-        it('src/*.mjs 之可執行程式碼只有 getDiag.mjs 呼叫 console', function() {
+        //盤點指令: 見規則帳本R18、R-DIAG-DEC
+        let codeLines = (f) => {
+            let lines = fs.readFileSync(`./src/${f}`, 'utf8').split('\n')
+            let r = []
+            lines.forEach((line, i) => {
+                let t = line.trim()
+                if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) {
+                    return
+                }
+                r.push({ at: `${f}:${i + 1}`, code: line.replace(/\/\/.*$/, '') })
+            })
+            return r
+        }
+
+        it('src/*.mjs 之可執行程式碼不直接呼叫console(診斷輸出一律經wsemi之getDiag), 自寫之getDiag.mjs已刪除', function() {
             let files = fs.readdirSync('./src').filter((f) => f.endsWith('.mjs'))
+            assert.strict.equal(files.includes('getDiag.mjs'), false, '不得另寫等價實作(dspec D1)')
             let hits = []
             for (let f of files) {
-                let lines = fs.readFileSync(`./src/${f}`, 'utf8').split('\n')
-                lines.forEach((line, i) => {
-                    let t = line.trim()
-                    if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) {
-                        return
-                    }
-                    let code = line.replace(/\/\/.*$/, '')
+                for (let { at, code } of codeLines(f)) {
                     if (/\bconsole\b/.test(code)) {
-                        hits.push(`${f}:${i + 1}`)
+                        hits.push(at)
                     }
-                })
+                }
             }
-            let others = hits.filter((v) => !v.startsWith('getDiag.mjs:'))
-            assert.strict.deepEqual(others, [])
-            assert.strict.equal(hits.length > 0, true, 'getDiag.mjs自身有console出口')
+            assert.strict.deepEqual(hits, [])
+            //診斷出口只有一處宣告, 且取自wsemi
+            let g = fs.readFileSync('./src/genDiag.mjs', 'utf8')
+            assert.strict.equal(/import getDiag from 'wsemi\/src\/getDiag\.mjs'/.test(g), true)
+        })
+
+        it('diag( 站點全集: 共2處(前端1、伺服端1), label皆為字串字面值(固定詞彙), level只用字面值\'error\'', function() {
+            let files = fs.readdirSync('./src').filter((f) => f.endsWith('.mjs'))
+            let sites = []
+            for (let f of files) {
+                for (let { at, code } of codeLines(f)) {
+                    if (/(^|[^.\w])diag\(/.test(code)) {
+                        sites.push({ at, code: code.trim() })
+                    }
+                }
+            }
+            assert.strict.deepEqual(sites.map((v) => v.at.split(':')[0]).sort(), ['WServWebdataClient.mjs', 'WServWebdataServer.mjs'])
+            for (let s of sites) {
+                assert.strict.equal(/diag\((['`])[^'`$]*\1/.test(s.code), true, `label須為不含內插之字串字面值: ${s.at}`)
+            }
+            let cl = sites.find((v) => v.at.startsWith('WServWebdataClient.mjs'))
+            assert.strict.equal(/, 'error'\)$/.test(cl.code), true, '前端該站為console.error(舊isErr=true)')
+            let sv = sites.find((v) => v.at.startsWith('WServWebdataServer.mjs'))
+            assert.strict.equal(/^diag\('[^']*'\)$/.test(sv.code), true, '伺服端該站為console.log(舊版預設串流)且無細節')
         })
 
     })

@@ -56,27 +56,31 @@ new WServWebdataServer(inst, {
 ```
 
 ## Diagnostic output
-本套件自身之診斷輸出皆經單一出口(`src/getDiag.mjs`)，**預設只輸出固定標籤與不含資料值、使用者 id、token 及錯誤原文之摘要**。目前共兩處：
-* 前端：回調函數(`getServerMethods`、`recvData`、`getRefreshState`、`getRefreshTable`、`getBeforeUpdateTableTags`、`getAfterUpdateTableTags`)於停止後才拋錯(停止後不再發出 error 事件，改以 `console.error` 輸出，使用端程式之錯誤不可無聲)。預設輸出 `'[w-serv-webdata] callback error after stop'` 與 `{ hook, errType, errCode }`——回調函數名稱、錯誤類別(建構子名稱)與機器代碼(如 `ENOENT`、`ERR_*`、整數)，**不輸出錯誤訊息文字**(其可能夾帶資料值、使用者 id 或 token)。
+本套件自身之診斷輸出與遮罩**一律由 wsemi 之共用模組提供**(`getDiag`、`maskDiagText`、`maskDiagCopy`、`maskDiagErr`、`getDiagSecrets`、`getDiagBriefErr`；用法與規則以 wsemi 各函數之 JSDoc 與其規則帳本 R-DIAG-01 為準，跨套件規格為〈診斷輸出與遮罩〉)，本套件只宣告秘密來源(`opt.getToken` 所得之 token)與 `safe` 鍵(`hook`，見 `src/genDiag.mjs`)，**預設只輸出固定標籤與不含資料值、使用者 id、token 及錯誤原文之摘要**。目前共兩處：
+* 前端：回調函數(`getServerMethods`、`recvData`、`getRefreshState`、`getRefreshTable`、`getBeforeUpdateTableTags`、`getAfterUpdateTableTags`)於停止後才拋錯(停止後不再發出 error 事件，改以 `console.error` 輸出，使用端程式之錯誤不可無聲)。預設輸出 `'[w-serv-webdata] callback error after stop'` 與 `{ hook, errType, errCode }`——回調函數名稱、錯誤類別(僅內建錯誤類別名，使用端自訂之類別名一律為 `Error`)與錯誤代碼(僅 wsemi 白名單內之系統與 Node 具名代碼，如 `ENOENT`、`ECONNREFUSED`、`EAI_AGAIN`、`ERR_INVALID_ARG_TYPE`，不收整數與任意樣式之字串)，**不輸出錯誤訊息文字**(其可能夾帶資料值、使用者 id 或 token)。
 * 伺服端：`instWConverServer` 非有效物件而改建事件物件時，`console.log` 固定文字(不含資料值)，時機同舊版(先於其餘設定檢查)。
 
 兩個建構選項(前端 `WServWebdataClient` 與伺服端 `WServWebdataServer` 皆有，語意與 w-serv-orm 一致)：
 * `logDetail`(布林，預設 `false`)：`true` 時 `console` 輸出還原為完整細節(含錯誤原文與其附帶之資料，供除錯)。
 * `funLog(label, safe, detail)`(函數，預設無)：給予時診斷輸出只交給它而**不寫 console**；`label` 為固定標籤，`safe` 為不含資料值之摘要，`detail` 為完整細節(錯誤之拷貝，無細節者不傳)，供使用端遮罩或轉送至自己的日誌。其拋錯與回傳 promise 之 reject 皆被吞下，不影響本套件流程。
 
-**token 一律遮罩為 `[token]`**(預設、`logDetail`、`funLog` 皆然)：
-* `opt.getToken` 所得者(含輪詢所取；至多記住最近 128 個，以子字串比對，故過短之 token 也會遮罩字樣中相同的片段)。
-* 鍵名含 `token`、`authorization`、`api-key` 者之值(含 Symbol 鍵、Map 之鍵)，與 `Bearer` 憑證。
-* 字串內 `token=…`、`"__sysToken__":"…"`、`Authorization: Basic …`、`x-api-key=…`、引號包住含空白之值等鍵值形式之值。
+**憑證與 token 一律遮罩為 `***`**(預設、`logDetail`、`funLog` 皆然；遮罩由 wsemi 提供)：
+* `opt.getToken` 所得者(前端含輪詢所取；伺服端為收到請求之 `__sysToken__`)：近期至多記住 128 個，**加上進行中請求之 token(保留至請求結束，不被 128 個之上限淘汰)**；以子字串比對，**長度不足 4 字元之 token 不遮**(過短者會切碎無關文字)。
+* 鍵名含 `password`、`secret`、`token`、`authorization`、`api-key` 等憑證鍵名者之值(含 Symbol 鍵、Map 之鍵)，與 `Bearer` 憑證。
+* 字串內網址帳密(`scheme://帳:密@主機` 之帳密段)，與 `token=…`、`password=…`、`"__sysToken__":"…"`、`Authorization: Basic …`、`x-api-key=…` 等鍵值形式之值。
 
-保證範圍：上述三類(「最近 128 個」以最近取得或使用為準，重複取得者視為最近使用)。**無法辨識之任意文字中的其他 token 不保證**(例如不在最近 128 個內、也不以上述鍵值形式出現者；已知 token 與 `Bearer`／鍵值樣式部分重疊時以先匹配者為準)。細節為拷貝，遮罩不改動原物件；拷貝時函數、RegExp、二進位資料、過深(8 層)或過大(5000 節點)者以標記字串代替，不執行 getter(`Error` 的 `stack` 為內建存取器，取其字串，與舊版 `console.error(err)` 同樣會讀 `stack`)，原型物件不複製(原型上的資料屬性不遮罩、可變狀態與原物件共用，類別上自訂的 `nodejs.util.inspect.custom` 輸出亦不受遮罩)；遇 `Proxy` 時其陷阱仍會被觸發(`instanceof` 判型，瀏覽器無從偵測 `Proxy`)。預設摘要中的錯誤類別取建構子名稱、代碼取自有屬性 `code`(限整數或 `ENOENT`、`ERR_*` 樣式)——兩者皆由使用端程式決定，以資料動態命名類別或把使用者識別存入 `code` 者不在保證範圍(摘要內若恰等於已知 token 仍遮罩)。細節拷貝需要 ES2015 之 `Reflect.ownKeys`、`ArrayBuffer.isView`(與本套件必備之 `AbortController` 同為現代環境)，缺者細節降為 `[Uncopyable]`。
+細節(`funLog` 之 `detail`、`logDetail` 之輸出)為遮罩後之拷貝，不改動原物件、不執行使用端之 getter 與 Proxy 陷阱(可偵測時)、不沿用使用端原型；函數、二進位資料、Promise、過深或過大者以標記字串代替，循環參照以 `[Circular]` 代替，細節規則以 wsemi 之 `maskDiagCopy` 為準。**無法辨識之任意文字中的其他秘密不保證**(例如不在上述清單內、也不以上述鍵值或網址形式出現者；後端連線之裸字串密碼由 ORM 層負責遮罩)。
 
 選項型別錯誤(`logDetail` 非布林、`funLog` 非函數)於建構任何元件之前拋錯(`invalid opt.logDetail`、`invalid opt.funLog`)，`null` 與 `undefined` 視為未給。診斷輸出本身不會使流程拋錯(`console` 或 `funLog` 拋錯一律吞下)。
 
+**對外之錯誤值亦遮罩憑證與 token**(`error` 事件之錯誤引數、前端請求之 reject 值、伺服端回給遠端之 `{ state: 'error', msg }`)：
+* 這些值來自後端函數、授權函數、`getUserIdByToken`、通訊層或使用端回調(外來值)，含上述憑證或 token 者改為遮罩後之副本(Error 保留類別與 `code`，`instanceof` 不變)，**不含者原樣交出(身分不變)**；`data` 等呼叫端自身之輸入不在此列。
+* 伺服端回給遠端之 `msg`(`state` 為 `error` 者；成功之資料不遮)為再過一層：後端連線帳密(如資料庫密碼)之遮罩由 ORM 層負責(`w-orm-*` 之 `diag.err`)，此處以網址帳密、憑證鍵值與已知 token 補強。
+* 本套件自身以固定詞彙組成之拒絕訊息(`permission denied`、`invalid find[…]`、`invalid token`、`invalid input`、`stopped by clearBroadcast or clearSync` 等)**不經遮罩**。
+
 只涵蓋本套件自身之診斷輸出，**不含**：
-* 下層套件之輸出：回傳之事件物件**無 `error` 監聽者**時，w-serv-broadcast 與 w-sync-webdata 會以 `console.error` 輸出該 error 事件之內容(可能含 `getUserIdByToken` 之原拒絕值)；`error` 監聽器自身拋錯時，wsemi 亦會 `console.error` 輸出該拋出值。使用端請對回傳之事件物件掛 `error` 監聽，且監聽器不可拋錯。
-* 事件、回應與 reject 之內容(契約，原錯誤值原樣交出)。
-* 使用端函數之輸出，以及回調函數的非同步 reject(回調函數為同步呼叫，`async` 回調回傳之 promise 的 reject 不被本套件攔截，屬既有行為)。
+* 下層套件之輸出：回傳之事件物件**無 `error` 監聽者**時，w-serv-broadcast 與 w-sync-webdata 會以 `console.error` 輸出該 error 事件之內容；`error` 監聽器自身拋錯時，wsemi 亦會 `console.error` 輸出該拋出值；w-serv-broadcast 輪詢之 `getToken` 失敗事件(`{ msg: '[sys:polling] error', err }`)之 `err` 亦由其交出。使用端請對回傳之事件物件掛 `error` 監聽，且監聽器不可拋錯。
+* 事件之 `data` 引數(如 `permission denied` 事件之 `func`)等呼叫端自身之輸入，與使用端函數之輸出，以及回調函數的非同步 reject(回調函數為同步呼叫，`async` 回調回傳之 promise 的 reject 不被本套件攔截，屬既有行為)。
 
 ```alias
 // 預設：只輸出標籤與摘要
@@ -111,6 +115,15 @@ let client = new WServWebdataClient(instWConverClient, {
     // ...
 })
 ```
+
+## Breaking changes
+診斷輸出與遮罩改用 wsemi 1.9.31 之共用模組(`getDiag` 等，不再有本套件自寫之 `src/getDiag.mjs`；不留舊版相容)，對外行為變化如下，使用端須配合之處標「須配合」：
+* **遮罩字樣由 `[token]` 改為 `***`**(`funLog` 之 `detail`、`logDetail` 之輸出)：以字串比對 `[token]` 者須改。**須配合**：下游 w-serv-hapi 之 JSDoc 字樣(`WServHapiClient.mjs`、`WServHapiServer.mjs`)與其 `unit-optDoc` 須同步。
+* **遮罩範圍擴大為憑證**：除 `opt.getToken` 所得之 token 外，網址帳密、`password`／`secret` 等憑證鍵名之值亦遮罩；鍵名含 `token` 者之值整體遮罩不看內容(原即如此)。長度不足 4 字元之 token 不遮(原不設下限)。
+* **預設摘要 `{ hook, errType, errCode }` 之規則改為白名單**：`errType` 僅內建錯誤類別名(使用端自訂之類別名一律為 `Error`，原列出建構子名稱)；`errCode` 僅 wsemi 之系統與 Node 具名代碼(原為 `E…`、`ERR_…` 樣式與整數；現不收整數與任意樣式之字串，`EAI_AGAIN` 等具名代碼則收)。
+* **細節拷貝改為 wsemi 之 `maskDiagCopy`**：副本之原型為內建(不再沿用使用端原型)，不執行 `Proxy` 陷阱(可偵測時)，`Map`／`Set` 複製並遮罩，循環參照以 `[Circular]` 代替，超過 20,000 字元之字串截斷並接 `…(len=原長)`；`funLog` 回傳之一般 thenable 不再被呼叫 `then`(僅原生 Promise 標記為已處理)。
+* **對外之錯誤值遮罩憑證與 token**：`error` 事件之錯誤引數、前端請求之 reject 值(伺服端回覆之 error 訊息、通訊層錯誤、`getToken` 之拋錯)、伺服端回給遠端之 `{ state: 'error', msg }` 含憑證或 token 者改為遮罩後之副本(Error 保留類別與 `code`)，不含者原樣(身分不變)；原即依契約「原錯誤值原樣交出」者，現僅含秘密時有異。進行中請求之 token 保留至請求結束，不被近期 128 個之上限淘汰。
+* 選項型別檢核(`invalid opt.logDetail`、`invalid opt.funLog`)行為同舊版。
 
 ## Upgrade Notes
 使用端須配合之處：
@@ -558,14 +571,14 @@ setTimeout(() => {
 
 Add script for w-serv-webdata-client.
 ```alias
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.19/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.20/dist/w-serv-webdata-client.umd.js"></script>
 ```
 
 #### Example for w-serv-webdata-client in web:
 > **Link:** [[dev source code](https://github.com/yuda-lyu/w-serv-webdata/blob/master/web.html)]
 ```alias
 <script src="https://cdn.jsdelivr.net/npm/w-converhp/dist/w-converhp-client.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.19/dist/w-serv-webdata-client.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/w-serv-webdata@1.1.20/dist/w-serv-webdata-client.umd.js"></script>
 
 let ms = []
 

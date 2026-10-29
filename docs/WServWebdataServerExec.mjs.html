@@ -64,6 +64,16 @@ import evEmit from 'wsemi/src/evEmit.mjs'
 import getErrorMessage from 'wsemi/src/getErrorMessage.mjs'
 import { getFuncPath, isBindableFuncPath, findFuncPathConflict } from './funcPath.mjs'
 import checkFind from './checkFind.mjs'
+import { genDiag } from './genDiag.mjs'
+import genTokenBook from './genTokenBook.mjs'
+
+
+//ownMsgs, 本套件自身以固定詞彙組成之拒絕訊息(由產生處經ownMsg登錄; 詞彙為封閉集合): 回給遠端時不經遮罩(固定字串經遮罩挖空會讓缺口反推短token), 其餘拒絕值(後端函數、授權函數、使用端回調所給者)皆為外來值
+const ownMsgs = new Set()
+let ownMsg = (s) => {
+    ownMsgs.add(s)
+    return s
+}
 
 
 //isGiven, 有給(不為undefined與null), 有給卻無效之設定須拋錯, 不可靜默改用預設
@@ -98,7 +108,7 @@ function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
                 if (methodsFind.includes(methodName)) {
                     let rc = checkFind(input)
                     if (!rc.ok) {
-                        return Promise.reject(`invalid find[${rc.reason}]`)
+                        return Promise.reject(ownMsg(`invalid find[${rc.reason}]`))
                     }
                     input = rc.find
                 }
@@ -106,7 +116,7 @@ function buildFuncs(tableNames, methods, operOrm, authorizeExec) {
                 //authorizeExec, 預設拒絕, 回傳嚴格等於true才放行, 拒絕時不呼叫operOrm; 授權函數拋錯或reject時其值原樣轉出, 經execFun之pm2resolve成為回應之msg
                 let b = await authorizeExec({ userId, tableName, methodName, input })
                 if (b !== true) {
-                    return Promise.reject('permission denied') //須reject字串, 若用Error物件, 序列化後前端收到的是'Error: permission denied'
+                    return Promise.reject(ownMsg('permission denied')) //須reject字串, 若用Error物件, 序列化後前端收到的是'Error: permission denied'
                 }
 
                 //呼叫ORM的泛用接口procCommon
@@ -317,6 +327,24 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         }
     }
 
+    //diag, book, 內部選項(由WServWebdataServer交入): 診斷輸出實例與伺服端收到之token紀錄, 供回給遠端之錯誤訊息與error事件遮罩; 未給(直接建構本函數)時自建(無診斷輸出, 僅遮罩)
+    let diag = get(opt, 'diag', null)
+    let book = get(opt, 'book', null)
+    if (!isfun(get(diag, 'mask')) || !isfun(get(diag, 'err')) || !isfun(get(book, 'hold'))) {
+        book = genTokenBook()
+        diag = genDiag({ logDetail: false, funLog: null }, book)
+    }
+
+    //maskResult, 回給遠端之函數結果: 成功之資料(state為success)原樣; 其餘(error、cancelled)之msg為後端函數、授權函數或使用端回調之拒絕值(外來值), 經diag.mask遮罩憑證樣式(網址帳密、password、token、Bearer等)與已知token(ORM層之diag.err為主防線, 此為再過一層);
+    //不含應遮罩者原物件原樣, 本套件自身以固定詞彙組成之拒絕訊息(ownMsgs)不經遮罩
+    let maskResult = (r) => {
+        if (!isobj(r) || r.state === 'success' || (typeof r.msg === 'string' &amp;&amp; ownMsgs.has(r.msg))) {
+            return r
+        }
+        let m = diag.mask(r.msg)
+        return m === r.msg ? r : { ...r, msg: m }
+    }
+
     //funcs
     let funcs = {}
     if (useDbOrm) {
@@ -336,8 +364,28 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         })
     }
 
-    //execFun
+    //execFun, 收到之token記錄於book並保留至本請求結束(含下方收尾之回應與事件遮罩), 使進行中請求之token不被近期上限(128個)淘汰而漏遮
+    //收尾之catch不可再拋錯: getErrorMessage不拋錯, diag.mask與diag.err不拋錯, 事件經evEmit隔離監聽者之拋錯
     async function execFun(func, input, pm) {
+        let release = null
+        try {
+            return await execFunCore(func, input, pm, (token) => {
+                release = book.hold(token)
+            })
+        }
+        catch (err) {
+            pm.resolve({ state: 'error', msg: diag.mask(`execFun func[${func}] has an error: ${getErrorMessage(err)}`) }) //先回應再發事件
+            evEmit(instWConverServer, 'error', [diag.err(err)])
+        }
+        finally {
+            if (release !== null) {
+                release()
+            }
+        }
+    }
+
+    //execFunCore, hold為取得token後呼叫之記錄函數
+    async function execFunCore(func, input, pm, hold) {
         // console.log('execFun', func, input)
 
         //check, 必要檢測, 有些防火牆會刪除或修改封包內容, 導致無法解析func或input, 進而會導致後續取得sysToken或sysInput失效, 為避免誤判須先行偵測func, 若無func多半是封包被修改導致
@@ -364,6 +412,7 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
             return pm //提前離開
         }
         token = cstr(input.__sysToken__)
+        hold(token)
 
         //get input, 將內部sysInput提出
         if (!haskey(input, '__sysInputArgs__')) {
@@ -382,14 +431,14 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         let userId = ''
         if (true) {
 
-            //getUserIdByToken, 拋錯或reject時視同拒絕, 拒絕值原樣成為回應之msg(與各函數經pm2resolve之拒絕值同規則), 使用端可藉此回自己之語系鍵
+            //getUserIdByToken, 拋錯或reject時視同拒絕, 拒絕值成為回應之msg(與各函數經pm2resolve之拒絕值同規則, 外來值經diag.mask遮罩, 不含應遮罩者原樣), 使用端可藉此回自己之語系鍵
             //不可改用pm2resolve: 其將同步throw null視為成功, 會以空字串userId繼續執行(fail-open)
             try {
                 userId = await getUserIdByToken(token) //以await取值, 使原生Promise與其他thenable一致處理
             }
             catch (err) {
-                pm.resolve({ state: 'error', msg: err }) //先回應再發事件
-                evEmit(instWConverServer, 'error', [err]) //監聽者拋錯時由evEmit隔離, 不中斷流程
+                pm.resolve({ state: 'error', msg: diag.mask(err) }) //先回應再發事件
+                evEmit(instWConverServer, 'error', [diag.err(err)]) //監聽者拋錯時由evEmit隔離, 不中斷流程
                 return pm //提前離開
             }
 
@@ -439,10 +488,10 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
         //call fun
         try {
             let r = await pm2resolve(fun)(userId, ...input) //第1參數現在改為userId, 後端函數接收各自處理userId
-            pm.resolve(r)
+            pm.resolve(maskResult(r)) //回給遠端之error訊息為後端函數之拒絕值(外來值), 再過一層遮罩
         }
         catch (err) {
-            pm.resolve({ state: 'error', msg: `call func[${func}] has an error: ${getErrorMessage(err)}` })
+            pm.resolve({ state: 'error', msg: diag.mask(`call func[${func}] has an error: ${getErrorMessage(err)}`) })
         }
 
         return pm //共用Promise
@@ -452,12 +501,8 @@ function WServWebdataServerExec(instWConverServer, opt = {}) {
     instWConverServer.on('execute', function(func, input, pm) {
         //console.log(`Server[port:${optServer.port}]: execute`, func, input)
 
-        //execFun, 收尾之catch不可再拋錯: getErrorMessage不拋錯, 事件經evEmit隔離監聽者之拋錯
+        //execFun, 內部錯誤之收尾(回應與error事件)已於其內處理
         execFun(func, input, pm)
-            .catch((err) => {
-                pm.resolve({ state: 'error', msg: `execFun func[${func}] has an error: ${getErrorMessage(err)}` }) //先回應再發事件
-                evEmit(instWConverServer, 'error', [err])
-            })
 
     })
 
@@ -481,7 +526,7 @@ export default WServWebdataServerExec
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Thu Oct 29 2026 19:32:03 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Thu Oct 29 2026 20:40:26 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

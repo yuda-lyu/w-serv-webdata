@@ -265,3 +265,13 @@
 - **最大失誤(2026-10-29)**:把「排鎖＋基準＋全套＋後測」放進單一**背景指令**,其 `timeout` 取上限 7200000ms,但該計時**含排鎖等待**(約 30 分),基準跑到第 90 分鐘(重度阻塞第 5 輪)時被終止,獨佔鎖隨之失去(殘留鎖以 `quiet-run --release-stale` 回收),他套件之獨佔任務已排在前面,後測輪不到.處置:排鎖與長任務一律 detached 行程(`spawn(..., { detached: true })` 或 `nohup`)並以結果檔分段等待,不掛在有時限之背景指令上(技能 role-setup-scheduler-for-session);**一把獨佔鎖內須排滿所有需要獨佔之階段(基準、後測、變異、補充實驗),因為鎖一放,他套件之獨佔任務(可達 1.5 小時)就排在前面**.基準期間不跑任何他項(含冒煙、eslint),否則干擾自己之基準(本次基準期間未取鎖跑了數次冒煙,基準數字視為偏悲觀);要在基準前驗證改寫之測試,應在排獨佔鎖**之前**先以共享鎖(`--lock`)跑完,再排獨佔基準.
 - 排鎖與負載試驗之作法:排鎖可達一小時以上,故先取動工前快照(`./tmp/tm-servwebdata/base/`:src、test、舊版 `w-serv-broadcast`／`w-sync-webdata`／`w-converhp`／`wsemi`／`w-orm-lowdb` 之 node_modules 複本,其餘第三方相依取自 repo 根),把「基準→全套→後測」寫成單一獨佔鎖內之階段腳本(`stages.mjs`,於取得鎖時才讀 `ctl.json` 決定做哪些階段),排鎖期間完成實作;全套不綠則略過後測;本機 8 核,每輪(7 檔 166 案)約 5.5 分.`loadTrial.mjs` 加 `exitLagMs`(報告寫出至行程結束之間隔)以判定測完是否自行結束.
 
+### E46 診斷輸出與遮罩遷移至 wsemi 共用模組(2026-10-29,mig-webdata,排程第 161 項)
+
+- 原則:規則帳本 R18 只留摘要並指回 dspec 與 wsemi R-DIAG-01;本套件只剩「宣告」(`genDiag.mjs`:secrets 函數形式＝token 簿、`safeKeys: ['hook']`)與站點接線,**不得再自寫遮罩**;發現 wsemi 缺陷依全域設定 §5.2 寫建議檔,不繞道.
+- **站點判斷看「值的來源」,不是看「位置」**:同一個 `reject` 站點,值可能是外來(後端、使用端回調)也可能是本套件自身之固定詞彙.①前端 `msgStop` 作為 abort reason 經通訊層**原樣回到本套件**的 catch,若站點一律 `diag.err` 就變成誤包固定詞彙(token 為 `stopped` 時被切成 `*** by clearBroadcast…`):以身分比對豁免(`toOut`).②伺服端 `pm2resolve` 把本套件之 `permission denied`／`invalid find[…]` 與外來拒絕值合流為同一個 `{state:'error', msg}`,事後無從分辨:固定詞彙於**產生處登錄**(`ownMsgs`),遮罩處查登錄.
+- **站點全集不能只 Grep `reject(`／`throw`／`emit('error'`**:`genPollingGate` 內 `await getUserIdByToken` 的拒絕值不經任何 throw 語句(直接傳播給 w-serv-broadcast 發 error 事件),是看呼叫鏈才發現的站點;`Promise.reject(…)` 與 `async` 函數內的傳播同理.防禦性 catch(execFun 收尾、函數呼叫 catch)也要實測可達(Proxy 陷阱拋錯、自訂迭代器拋錯可觸發),不能因「無已知來源」而略過其遮罩.
+- **hold 要在「拒絕值被遮罩的那一刻」仍有效**:前端 `executeShell` 用 `try/finally` 包住 execute 之 then／catch(遮罩在 then／catch 內,release 在其後);伺服端 `execFun` 之收尾 catch 也放進 hold 範圍內(原在 listener 外層 `.catch`,release 後才遮罩).不可用 `pm.then(release, release)`——對 pm 掛處理會讓其 rejection 變成已處理,改變 unhandledRejection 語意.
+- **wsemi 行為(實測)**:①token 長度不足 4 不遮(reject 清單門檻);②字串超過 20,000 字元只輸出原文位置 20,000 前之內容並接 `…(len=原長)`(舊測試之 20000 字元 token 案期望隨之改);③含 `token=…`、`password=…`、網址帳密之錯誤會被視為含憑證而成副本,故舊測試「error 事件為原錯誤(同一參照)」不可再用含 `token=` 字樣之錯誤當不含憑證者;④`errType` 只收內建類別名、`errCode` 只收具名集合(自訂類別名、整數、`E…` 樣式字串不收);⑤funLog 回傳之一般 thenable 不再被呼叫 then.
+- 測試:形態類案不在本套件重寫,由 `wsemi/src/_diagCases.mjs` 之 wire 案子集驅動(`unit-diagcorpus`,以前端停止後拋錯之 funLog detail／safe、error 事件、伺服端回遠端 msg 為真實呼叫點;不適用案與理由寫在檔頭);站點接線案在 `unit-diagmask`(每站點一案).變異驗證以「src 複本＋測試複本」置於 `./tmp/…/mut/<id>/`,所有變異與修前紅併入**同一次**鎖內之單一 mocha 行程(`--reporter json --reporter-option output=…` 依檔案路徑歸屬失敗),因排鎖一次可達 5~20 分鐘.
+- 工具限制:守門 hook 擋 `cd`、heredoc／`>` 寫檔、前景 `sleep`;等鎖與背景工作用 Monitor 的 until 迴圈;修改大段檔案用 Write 寫小腳本(附 `git diff --stat`).
+

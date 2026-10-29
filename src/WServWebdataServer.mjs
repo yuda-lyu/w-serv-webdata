@@ -15,7 +15,8 @@ import WServBroadcastServer from 'w-serv-broadcast/src/WServBroadcastServer.mjs'
 import pickTables from './pickTables.mjs'
 import removeListeners from './removeListeners.mjs'
 import genPollingGate from './genPollingGate.mjs'
-import { getOptLog, getDiag } from './getDiag.mjs'
+import { checkOptLog, genDiag } from './genDiag.mjs'
+import genTokenBook from './genTokenBook.mjs'
 import WServWebdataServerSync, { checkOpt as checkSyncOpt } from './WServWebdataServerSync.mjs'
 import WServWebdataServerExec, { parseOpt as parseExecOpt } from './WServWebdataServerExec.mjs'
 
@@ -181,7 +182,7 @@ function parseOpt(opt = {}) {
  * 9. 停止服務時依序呼叫clearBroadcast(停止廣播：清除廣播之計時器與在線偵測並移除輪詢之監聽，對已進入之客戶端補發clientLeave與clientChange使進出成對後，不再派發廣播之事件)、clearSync(釋放資料同步)，再停止通訊服務(例如WConverhpServer之stop)。只呼叫clearBroadcast而未停止通訊服務時，前端之輪詢改由資料通道回應{state:'error',msg:'invalid token'}，前端每輪發出輪詢失敗之error事件({msg:'[sys:polling] error',err:{state:'error',msg:'invalid token'}})且收不到推播。clearSync會移除本套件掛於kpOrm之change監聽與掛於傳入事件物件之changeTableTags監聽、取消待推播之時間戳並將尚未落檔之時間戳寫入檔案，之後kpOrm之變更不再更新時間戳與推播，可重複呼叫。釋放後傳入之事件物件上仍有資料通道之execute監聽，不可再以同一事件物件重新建構。
  * 10. 表操作select、delAll之find(前端所送之第1個參數，即查詢條件)來自不可信之客戶端，於呼叫authorizeExec與operOrm之前先經固定之白名單檢核(不提供放寬之設定)：find須為未給或一般物件；各鍵須為識別字(Unicode字母、組合符號、數字、底線，非數字開頭，長度不超過128，至多64個鍵)，故以$開頭、含點號、為Object.prototype之成員名(例如__proto__、constructor、toString)、為'prototype'或'length'(暫行)之鍵皆不可；各值須為純量(字串不超過1024字元且不含NUL、有限數字、布林，不含null)，或恰含單鍵$in之物件(值為純量之陣列)，且整個find之$in元素總數(跨鍵合計，非逐鍵)至多1000個。因此null、陣列、字串、數字、布林、二進位等非條件物件，運算子(例如$or、$where、$regex、$gt)與巢狀物件一律拒絕；需要更豐富之查詢者請改用kpFunExt並自行把關，可引用checkFind(import checkFind from 'w-serv-webdata/src/checkFind.mjs'，回傳{ok,find|reason})檢核。不合者以字串'invalid find[原因碼]'拒絕(原因碼為notObject、badKey、badOperator、badValue、badIn、tooManyKeys、tooManyIn，不含前端所送之值)，不呼叫authorizeExec與operOrm，亦不發出error事件；先驗後授權，故authorizeExec只會見到白名單內之形狀。通過者以全新且凍結之複本取代，authorizeExec與operOrm收到同一份，授權所見即交給ORM者(ORM邊界以內)。檢核通過不代表後端安全：字串值之語意(例如大小寫、數字字串、陣列欄位之包含)由各ORM後端決定；另w-serv-orm之procOrm對字串型主鍵之id條件，會把有限數字(含$in之元素)轉為字串後才交後端，授權函數收到的仍是數字，故授權函數依id判斷時請以String()正規化後再比較。find檢核依方法名精確比對'select'與'delAll'(大小寫、空白皆視為不同名)，methodsExec若列入文件所列以外之方法名(例如w-orm-*另有之帶條件方法)，其input不經檢核，須由authorizeExec或自訂之operOrm把關，建議只列文件所列之方法。insert、save、del、mix之input不檢核形狀；select之find規則同delAll之條件：省略參數或傳{}(伺服端收到之find為undefined或{})回傳全部數據，非條件物件或白名單外運算子整批reject。經資料通道呼叫之delAll與後端(w-orm-*、w-serv-orm)語意一致，不另加通道專屬限制，以免用法歧異造成誤解：不給條件(前端省略參數或傳{}，即伺服端收到之find為undefined或{}；前端顯式傳入undefined經JSON成為null而被拒絕，見下述)與select同規則放行，其語意為刪除全部數據，不另行確認；delAll為破壞性操作，須審慎使用、非必要不用(非必要請勿將'delAll'列入methodsExec)，列入時請於authorizeExec限制可呼叫者；條件須符合w-orm系列白名單，傳非條件物件或白名單外運算子由ORM整批reject(本通道另以上述白名單限縮為等值純量與單鍵$in，未通過者以'invalid find[原因碼]'拒絕)。第1個參數之後之參數(例如order、limit)丟棄，不交給authorizeExec與operOrm。通訊內容經JSON序列化，值為undefined之物件鍵會消失(例如{ ownerId: undefined }伺服端只見{}，select會回全表、delAll會全刪)，顯式傳入undefined之find會成為null而被拒絕，前端勿傳undefined之條件值。另前端所送之參數(__sysInputArgs__)須為陣列(對所有函數)，否則回應{state:'error',msg:'invalid input'}。
  * 11. 系統函數([sys:getFuncList]、[sys:getTableTags]、[sys:polling])依作用分類：只回公開資訊者(函數名稱清單[sys:getFuncList])可公開；會回資料或改變狀態者須身分——[sys:getTableTags]回同步表名與時間戳，[sys:polling]會建立在線身分並取走該clientId佇列內之全部廣播(含同步表時間戳廣播與部署方broadcast之內容)。故以opt.sysFuncsPublic列出無須身分即可呼叫者(預設三者皆公開，相容既有行為：已發布之前端元件輪詢不帶token，預設收緊會使其即時同步失效、未登入頁不可用；框架預設多為放行，使用方須自行設定。使用端將前端改用帶token之元件(輪詢帶__sysToken__)後，建議設為只公開['[sys:getFuncList]']，使無身分者取不到同步表時間戳與廣播)：列於其中者，getUserIdByToken得空字串亦放行；未列者須得非空字串userId，否則回應{state:'error',msg:'permission denied'}(固定鍵，不回顯token)，不執行並發出error事件{ msg: 'permission denied', func }；getUserIdByToken拋錯或reject一律拒絕(含列於sysFuncsPublic者，同其他函數，拒絕值原樣成為回應)；協定鍵缺漏(無__sysToken__、__sysInputArgs__)或參數非陣列者於反查之前即拒絕。sysFuncsPublic只放寬系統函數之空userId，表操作與kpFunExt之空userId語意不變(交authorizeExec或函數自行把關)。採嚴格設定(未列[sys:polling])時，getUserIdByToken固定回空字串或沿用預設之部署(例如w-web-sso，其未登入須能進登入頁)須維持預設或顯式列出三者['[sys:getFuncList]','[sys:getTableTags]','[sys:polling]']，否則前端因輪詢被拒絕而永不綁定$fapi，伺服端見到error事件；嚴格設定下未帶token之已發布前端元件亦被拒絕(空身分)。輪詢由w-serv-broadcast處理(輸入為{ clientId, __sysToken__ }，非資料通道之協定)，本套件以其1.1.11起之opt.verifyPolling注入身分關卡，資料通道對運作中之輪詢只略過(不回應)：關卡以getUserIdByToken(__sysToken__)反查(前端opt.getToken之值，每輪重新取得)，得空字串者須[sys:polling]列於sysFuncsPublic方放行；帶__sysToken__鍵者(含空字串，非字串以cstr轉換，同其他函數)每輪恰反查1次，反查拋錯或reject一律拒絕(含公開者)；未帶該鍵者(已發布之舊前端元件，輪詢輸入恰為{ clientId })未出示token，以空身分處理而不反查：公開(預設)時放行，嚴格設定時拒絕('empty userId')；拒絕時前端只見固定訊息'[sys:polling] permission denied'，不建立或刷新在線身分與佇列、不取走廣播，原因經w-serv-broadcast之error事件供稽核——{ msg: '[sys:polling] permission denied', err: 原因字串('empty userId'、'clientId belongs to another userId')}，反查拋錯或reject時為{ msg: '[sys:polling] verifyPolling error', err: 原拒絕值 }，每被拒絕之輪詢各發一則。clientId須歸屬該身分：首次放行輪詢時綁定clientId與userId(公開時匿名者為空字串)，其後以不同userId輪詢同一clientId即拒(clientId由前端自訂，不綁定則知道他人clientId者可取走其廣播)；歸屬之保證為綁定存活期間內userId一致、先到先綁，並非證明初次輪詢者原本擁有該clientId(需要連線所有權時須由伺服端產生並綁定已驗證身分之連線識別)；綁定之生命週期同在線身分——該clientId逾時離線(w-serv-broadcast在線逾時固定10秒，期間無被放行之輪詢，發出clientLeave)時解除，clearBroadcast時全部解除；被拒絕之輪詢不刷新在線身分，故前端身分改變(例如登出再以他人登入而clientId未變)者，輪詢被拒絕至舊綁定逾時(約10秒)為止，重建前端(新clientId)則無此延遲。clearBroadcast後輪詢維持由資料通道回應invalid token(第9點)。輪詢每輪多一次getUserIdByToken(連同前端getToken)，驗證成本約為通訊層之兩倍，快取與撤銷延遲之取捨由使用方自行決定，本套件不快取。
- * 12. 診斷輸出：本套件自身之診斷輸出皆經單一出口(src/getDiag.mjs)，預設只輸出固定標籤與不含資料值、id、token及錯誤原文之摘要；伺服端目前僅一處(instWConverServer非有效物件而改建evem時，固定文字)，前端見WServWebdataClient。opt.logDetail還原完整細節(token仍遮罩，保證範圍與限制見README〈Diagnostic output〉及WServWebdataClient之opt.logDetail)，opt.funLog取代console並收完整細節(拷貝，不執行getter，原型物件不複製)，供使用端遮罩或轉送；診斷選項先於其餘設定檢查，型別錯誤拋invalid opt.logDetail／invalid opt.funLog。僅涵蓋本套件自身之輸出，不含w-serv-broadcast與w-sync-webdata等下層(例如回傳之事件物件無error監聽者時，其以console.error輸出error事件之內容，可能含getUserIdByToken之拒絕值；wsemi於error監聽器自身拋錯時亦會console.error輸出該拋出值)、事件與回應之內容(契約，原錯誤值原樣交出)與使用端函數之輸出；欲避免下層輸出事件內容者請對回傳之事件物件掛error監聽，且監聽器本身不可拋錯。
+ * 12. 診斷輸出：本套件自身之診斷輸出皆經wsemi之getDiag(本套件之宣告見src/genDiag.mjs，規則見wsemi之R-DIAG-01)，預設只輸出固定標籤與不含資料值、id、token及錯誤原文之摘要；伺服端目前僅一處(instWConverServer非有效物件而改建evem時，固定文字)，前端見WServWebdataClient。opt.logDetail還原完整細節(憑證與token仍遮罩為'***'，保證範圍與限制見README〈Diagnostic output〉及WServWebdataClient之opt.logDetail)，opt.funLog取代console並收完整細節(拷貝，不執行getter，不沿用使用端原型)，供使用端遮罩或轉送；診斷選項先於其餘設定檢查，型別錯誤拋invalid opt.logDetail／invalid opt.funLog。對外之錯誤值亦遮罩：回給遠端之error訊息(state為error之msg，來自表操作與kpFunExt之後端函數、授權函數、getUserIdByToken之拒絕值)與error事件之錯誤引數，凡含憑證樣式(網址帳密、password、token、Authorization、Bearer等鍵值)或伺服端收到之token(近期128個與進行中請求者)者以'***'取代，不含者原樣(身分不變)，本套件自身以固定詞彙組成之拒絕訊息(permission denied、invalid find[…]、invalid token等)不經遮罩；後端連線帳密(如資料庫密碼)之遮罩屬ORM層之責，此處僅為再過一層(不認識之裸字串密碼不在保證內)。僅涵蓋本套件自身之輸出，不含w-serv-broadcast與w-sync-webdata等下層(例如回傳之事件物件無error監聽者時，其以console.error輸出error事件之內容；wsemi於error監聽器自身拋錯時亦會console.error輸出該拋出值)、事件之data引數(呼叫端輸入，如permission denied事件之func)與使用端函數之輸出；欲避免下層輸出事件內容者請對回傳之事件物件掛error監聽，且監聽器本身不可拋錯。
  *
  * @class
  * @param {Object} instWConverServer 輸入通訊服務實體物件，須為具emit、on、off函數之eventemitter3事件物件(例如WConverhpServer或wsemi之evem所建立者)，有給物件而缺emit、on或off函數時拋錯；未給或非有效物件時改用wsemi之evem建立之事件物件(不連線)
@@ -198,7 +199,7 @@ function parseOpt(opt = {}) {
  * @param {Object} [opt.kpFunExt=null] 輸入額外擴充執行函數物件，須為純物件，key為函數名而值為函數(值非函數時拋錯)，函數第1參數為userId(取不到時為空字串)，之後為前端給予之參數。kpFunExt之函數不經authorizeExec須各自把關，含函數層級之角色或成員檢查(不可只靠通訊層之授權設定)，命名限制詳見上方說明，預設null
  * @param {String} [opt.fpTableTags='./tableTags.json'] 輸入儲存各資料表時間戳檔案路徑串，有給但非非空字串時拋錯，預設'./tableTags.json'
  * @param {Function} [opt.genTag=()=>'{random string}'] 輸入產生不重複識別碼函數，須回傳非空字串(回傳其他值時拋錯)，有給但非函數時拋錯，預設()=>'{random string}'
- * @param {Boolean} [opt.logDetail=false] 輸入診斷輸出是否還原為完整細節(含資料值與錯誤原文，供除錯)，有給但非布林時拋錯，預設false。token無論如何皆遮罩為'[token]'，規則見上方第12點
+ * @param {Boolean} [opt.logDetail=false] 輸入診斷輸出是否還原為完整細節(含資料值與錯誤原文，供除錯)，有給但非布林時拋錯，預設false。憑證與token無論如何皆遮罩為'***'，規則見上方第12點
  * @param {Function} [opt.funLog=null] 輸入診斷輸出函數(label, safe, detail)，有給但非函數時拋錯，預設null。給予時診斷輸出只交給它而不寫console：label為固定標籤，safe為不含資料值之摘要，detail為完整細節(token已遮罩；無細節者不傳)，供使用端遮罩或轉送；其拋錯與回傳promise之reject皆被吞下，不影響本套件流程。規則見上方第12點
  * @param {Function} [opt.onTrace=null] 輸入觀察回調函數，格式為(e)=>{}，預設null(未給或非函數時忽略，行為、時序與效能同未提供)，供測試與診斷以事件(而非等待毫秒)同步。本套件自身無計時器，本選項原樣轉交所包之w-serv-broadcast伺服端之opt.onTrace(1.1.14起)，事件不增不減、欄位與時機以其JSDoc為準；回調同步呼叫、不帶接收者，e為凍結之事件物件{ type, ... }(欄位皆為原始值)，其拋錯與回傳之rejection皆忽略，不影響廣播與在線偵測。type有：alive(在線偵測之事件，evType為'enter'或'leave'〔key為clientId，now為該事件後之在線數，早於clientEnter或clientLeave之排定〕、'tick'〔每50毫秒偵測一次，size為偵測前之佇列數〕、'stop'〔佇列已空而停止偵測〕)、prune(修剪佇列之計時器每1秒觸發，queues為修剪後之佇列數，removed為本次移除數)、emit(w-serv-broadcast之事件已排定於1ms後派發，name為事件名，如clientEnter、clientLeave、clientChange、error，final為是否為停止時之補發)、deliver(事件已派發而監聽器皆已呼叫完，name為事件名，final同上，ok為監聽器是否皆未拋錯)、report(改以error事件或console.error通報，src為'listener'或'error'，via為'event'或'console')、stop(clearBroadcast首次呼叫完成，final為已排定補發clientLeave之客戶端數)。經資料通道之execute所發出之error事件(拒絕表操作、系統函數等)為同步派發而不經上列emit與deliver；輪詢被拒絕(verifyPolling)之error事件則經emit與deliver。停止後除停止當下已在進行之那次派發與補發事件之deliver、report外不再通知。w-sync-webdata之opt.onTrace不轉交
  * @returns {Object} 回傳事件物件，可監聽error事件，可使用函數clearBroadcast、clearSync停止服務(見上方第9點)
@@ -491,8 +492,11 @@ function parseOpt(opt = {}) {
  */
 function WServWebdataServer(instWConverServer, opt = {}) {
 
+    //book, 伺服端收到之token的紀錄(近期至多128個與進行中請求之token), 供回給遠端之錯誤訊息與診斷輸出遮罩, 由WServWebdataServerExec於收到請求時記錄
+    let book = genTokenBook()
+
     //diag, 診斷輸出(本函數內僅此一處, 固定文字, 不含資料值): logDetail、funLog先於其他檢查解析(有給卻無效者拋錯), 使下方提示依之輸出, 提示之時機與舊版相同(先於其餘檢查)
-    let diag = getDiag(getOptLog(opt))
+    let diag = genDiag(checkOptLog(opt), book)
 
     //check
     if (!iseobj(instWConverServer)) {
@@ -517,6 +521,8 @@ function WServWebdataServer(instWConverServer, opt = {}) {
     let gate = genPollingGate({
         getUserIdByToken: optExec.getUserIdByToken,
         isPublic: optExec.sysFuncsPublic.includes('[sys:polling]'),
+        diag,
+        book,
     })
 
     //擴充廣播功能, execute監聽器之註冊順序須為廣播先於資料通道(資料通道之execFun對廣播運作中之輪詢只略過, 順序不影響結果, 但廣播已停止時才由資料通道回應)
@@ -566,6 +572,8 @@ function WServWebdataServer(instWConverServer, opt = {}) {
             {
                 ...optExec,
                 kpFunSys,
+                diag,
+                book,
                 isSysPollingActive: () => {
                     return !gate.isStopped()
                 },
@@ -591,7 +599,7 @@ function WServWebdataServer(instWConverServer, opt = {}) {
     catch (err) {
         instWConverServer.clearBroadcast()
         instWConverServer.clearSync()
-        throw err
+        throw diag.err(err) //來源混合: 使用端函數(genTag、kpOrm之on等)所拋之外來值與本套件之固定詞彙錯誤; 建構期token簿為空, 僅套通用憑證樣式(網址帳密、password=等), 固定詞彙不含此類樣式而原樣(身分不變)
     }
 
     return instWConverServer

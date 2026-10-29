@@ -24,6 +24,7 @@ describe('api-diaglog', function() {
     let portDef = 9008
     let portFun = 9009
     let portDet = 9010
+    let portRaw = 9011
 
     //敏感值: 標頭token、本體token、使用者id、資料列之值、錯誤原文
     let HDR = 'hdr-SECRET-token-1'
@@ -182,12 +183,62 @@ describe('api-diaglog', function() {
         let [label, safe, detail] = funLog.calls[0]
         assert.strict.equal(label, LABEL)
         assert.strict.deepEqual(safe, { hook: 'recvData', errType: 'Error' })
-        assert.strict.equal(detail.message, `${TEXT} uid=${UID} data=${JSON.stringify(ROWS)} token=[token]`)
+        assert.strict.equal(detail.message, `${TEXT} uid=${UID} data=${JSON.stringify(ROWS)} token=***`)
         assert.strict.equal(dump([detail, detail.stack]).includes(BODY), false)
         assert.strict.equal(funLogSrv.calls.length, 0)
         assert.strict.deepEqual(secretsIn(logged), [], '本行程其餘console輸出亦不含敏感值')
         assert.strict.deepEqual(recv[0].data, ROWS)
         assert.strict.deepEqual(again, ROWS)
+    })
+
+    //X62(設計diag-run01, dspec D3、P2): 後端函數reject含資料庫密碼與請求之token時, 經真實連線回給遠端之{ state: 'error', msg }不含; 以WConverhpClient直接取回覆(不經WServWebdataClient, 其前端遮罩會掩蓋伺服端是否遮罩)
+    it('X62 後端函數reject含資料庫密碼與請求之token: 遠端收到之msg不含(經HTTP取得之原始回覆)', async function() {
+        this.timeout(60000)
+        let PWD = 'Pw9xQ7zK-db'
+        let DBURL = `postgres://dbuser:${PWD}@db.example.com:5432/app`
+        let srv = null
+        let r = null
+        let { logged, restore } = capture()
+        try {
+            let wsv = new WConverhpServer({
+                port: portRaw,
+                pathUploadTemp: `${fdTmp}/uploadTemp-${portRaw}`,
+                verifyConn: async({ authorization }) => {
+                    return authorization === `Bearer ${HDR}`
+                },
+            })
+            srv = new WServWebdataServer(wsv, {
+                fpTableTags: `${fdTmp}/tags-${portRaw}.json`,
+                getUserIdByToken: async(token) => {
+                    return token === BODY ? UID : ''
+                },
+                kpFunExt: {
+                    boom: async() => {
+                        return Promise.reject(`connect ${DBURL} failed; password=${PWD}; bad credential ${BODY}`)
+                    },
+                },
+            })
+            srv.on('error', () => {})
+            assert.strict.equal(await wsv.ready, true, '伺服器已就緒')
+            let cl = new WConverhpClient({ url: `http://localhost:${portRaw}`, getToken: () => HDR, retryMain: 0 })
+            cl.on('error', () => {})
+            r = await cl.execute('boom', { __sysInputArgs__: [], __sysToken__: BODY })
+        }
+        finally {
+            if (srv) {
+                srv.clearBroadcast()
+                srv.clearSync()
+                await srv.stop()
+            }
+            await drain(3)
+            restore()
+        }
+        assert.strict.equal(r.state, 'error')
+        let s = dump([r, logged])
+        for (let x of [PWD, BODY, 'dbuser:']) {
+            assert.strict.equal(s.includes(x), false, `${x}不得出現於回覆與本行程之console輸出`)
+        }
+        assert.strict.equal(r.msg, 'connect postgres://***@db.example.com:5432/app failed; password=***; bad credential ***')
     })
 
     it('logDetail: 還原舊輸出(含id、資料值與原文), token遮罩', async function() {
@@ -196,7 +247,7 @@ describe('api-diaglog', function() {
         let entries = logged.error.filter((v) => v[0] === LABEL)
         assert.strict.equal(entries.length, 1)
         assert.strict.equal(entries[0].length, 2)
-        assert.strict.equal(entries[0][1].message, `${TEXT} uid=${UID} data=${JSON.stringify(ROWS)} token=[token]`)
+        assert.strict.equal(entries[0][1].message, `${TEXT} uid=${UID} data=${JSON.stringify(ROWS)} token=***`)
         assert.strict.equal(dump(logged).includes(BODY), false, 'token不外漏')
         assert.strict.equal(dump(logged).includes(HDR), false)
         assert.strict.deepEqual(recv[0].data, ROWS)
