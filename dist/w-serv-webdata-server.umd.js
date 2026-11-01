@@ -1,5 +1,5 @@
 /*!
- * w-serv-webdata-server v1.1.21
+ * w-serv-webdata-server v1.1.22
  * (c) 2018-2021 yuda-lyu(semisphere)
  * Released under the MIT License.
  */
