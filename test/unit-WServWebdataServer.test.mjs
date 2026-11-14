@@ -255,13 +255,24 @@ describe('unit-WServWebdataServer', function() {
             new WServWebdataServer(inst, base({ kpOrm: {}, tableNamesSync: ['tabC'] }))
         })
 
-        //R35: 沿用kpOrm[表]之取值語意, 以原型提供之事件物件可同步(行為鎖定)
-        it('以原型提供之kpOrm事件物件可同步', function() {
+        //R35: 只有繼承鍵(以原型提供)之kpOrm視為空物件而不同步; 原(2026-10-13行為鎖定)為可同步, wsemi 1.9.60起iseobj只看自有可列舉鍵(使用者2026-11-14裁定, 排程第430項), 與上方「kpOrm為空物件時不同步」之業主裁示一致
+        it('只以原型提供之kpOrm事件物件視為空物件而不同步', function() {
             let tabA = mkOrm()
+            let n0 = tabA.listenerCount('change')
             let inst = evem()
             insts.push(inst)
             new WServWebdataServer(inst, base({ kpOrm: Object.create({ tabA }), tableNamesSync: ['tabA'] }))
-            assert.strict.equal(tabA.listenerCount('change'), 2)
+            assert.strict.equal(tabA.listenerCount('change'), n0)
+        })
+
+        //R35: kpOrm以自有鍵提供之事件物件可同步
+        it('以自有鍵提供之kpOrm事件物件可同步', function() {
+            let tabA = mkOrm()
+            let n0 = tabA.listenerCount('change')
+            let inst = evem()
+            insts.push(inst)
+            new WServWebdataServer(inst, base({ kpOrm: { tabA }, tableNamesSync: ['tabA'] }))
+            assert.strict.equal(tabA.listenerCount('change'), n0 + 1)
         })
 
         //R24: 明示useDbOrm=false時不檢查資料通道與同步之設定(未指定時才檢查)
