@@ -1,6 +1,7 @@
 import isestr from 'wsemi/src/isestr.mjs'
 import cstr from 'wsemi/src/cstr.mjs'
 import haskey from 'wsemi/src/haskey.mjs'
+import probeReadable from './probeReadable.mjs'
 
 
 /**
@@ -44,6 +45,13 @@ function genPollingGate({ getUserIdByToken, isPublic, diag = null, book = null }
         //未帶該鍵者為已發布之舊前端元件(輪詢輸入恰為{ clientId }): 未出示任何token, 以空身分處理而不反查(公開時放行, 否則拒絕); 預設公開輪詢下須如此, 否則getUserIdByToken對空token拒絕(fail-closed)之部署會使舊前端輪詢失敗
         //拋錯或reject由w-serv-broadcast視為拒絕並發出error事件(內容含拒絕值): 拒絕值為使用端函數所給之外來值, 重新拋出前經diag.err遮罩(含憑證或token者才改為副本, 否則原值; 本次輪詢之token保留至反查結束)
         let userId = ''
+
+        //check, 輸入須可讀(型別標籤與__sysToken__鍵之in判斷不拋錯), 不可讀者拒絕(reject固定訊息, 不帶值), 不反查、不綁定:
+        //wsemi 1.9.69起haskey對不可讀之輸入回false而不拋錯, 若不檢查, 不可讀者會被當成「未帶該鍵之舊前端」以空身分放行(公開時), 修前haskey拋錯而使關卡拒絕, 維持之(R20)
+        if (probeReadable(input, { hasKeys: ['__sysToken__'] }) !== '') {
+            throw new Error('invalid input: must be a readable object')
+        }
+
         if (haskey(input, '__sysToken__')) {
             let token = cstr(input.__sysToken__)
             let release = book === null ? noop : book.hold(token)

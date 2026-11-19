@@ -15,6 +15,7 @@ import WServBroadcastServer from 'w-serv-broadcast/src/WServBroadcastServer.mjs'
 import pickTables from './pickTables.mjs'
 import removeListeners from './removeListeners.mjs'
 import genPollingGate from './genPollingGate.mjs'
+import probeReadable from './probeReadable.mjs'
 import { checkOptLog, genDiag } from './genDiag.mjs'
 import genTokenBook from './genTokenBook.mjs'
 import WServWebdataServerSync, { checkOpt as checkSyncOpt } from './WServWebdataServerSync.mjs'
@@ -132,6 +133,13 @@ function parseOpt(opt = {}) {
     //checkSyncOpt, 資料同步之設定, 回傳是否同步(kpOrm為空物件時不同步)
     let syncing = false
     if (useDbOrm) {
+
+        //check, 有同步表名時kpOrm須可讀(可列舉鍵之走訪不拋錯), 與checkSyncOpt讀取kpOrm之條件相同(無同步表名時不讀): wsemi 1.9.69起iseobj對走訪即拋錯者(ownKeys等陷阱拋錯之Proxy)回false而不拋錯,
+        //checkSyncOpt會把它當成空物件而靜默不同步(有給卻無效之設定被吞), 修前iseobj拋錯而使建構失敗, 維持之; 置於parseExecOpt之後, 錯誤之先後同修前(R20)
+        if (isarr(tableNamesSync) && tableNamesSync.length > 0 && probeReadable(kpOrm, { ownKeys: true }) !== '') {
+            throw new Error('invalid opt.kpOrm when useDbOrm=true')
+        }
+
         syncing = checkSyncOpt(tableNamesSync, kpOrm)
     }
 

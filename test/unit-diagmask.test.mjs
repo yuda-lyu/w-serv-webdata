@@ -8,6 +8,7 @@ import WServWebdataServerExec from '../src/WServWebdataServerExec.mjs'
 import WServWebdataClient from '../src/WServWebdataClient.mjs'
 import { genTracer, drain } from './tools/tracer.mjs'
 import { genRun, linkCtl, linkSig } from './tools/clientHarness.mjs'
+import { genUnreadables } from './tools/unreadable.mjs'
 
 
 //對外之錯誤值不含憑證與token(R-DIAG-01, 跨套件規格為主控dspec〈診斷輸出與遮罩〉D3、P2): 套件以reject、error事件、回給遠端之msg交出之外來值(後端、通訊層、使用端回調所給者)經wsemi之diag.err與diag.mask遮罩;
@@ -299,27 +300,84 @@ describe('unit-diagmask', function() {
             assert.strict.equal(r2.msg, e2, '不含憑證者原樣, 身分不變')
         })
 
-        //防禦性收尾之catch(輸入的檢視或參數展開拋錯, 例如Proxy陷阱、自訂迭代器): 文字取自外來錯誤, 回遠端之msg經diag.mask, error事件經diag.err
-        it('execFun收尾與函數呼叫之catch(輸入為Proxy陷阱拋錯、參數展開拋錯): 回遠端之msg與error事件已遮罩', async function() {
+        //防禦性收尾之catch(輸入之鍵取值拋錯、__sysInputArgs__取值拋錯、參數展開拋錯): 文字取自外來錯誤, 回遠端之msg經diag.mask, error事件經diag.err
+        //觸發之輸入須「可讀到進入取值」: wsemi 1.9.69起判斷函數(isobj、haskey)對不可讀之輸入回false而不拋錯, 標籤不可讀或has陷阱拋錯之Proxy於鍵檢查即被判無此鍵(回invalid token, 見下一案),
+        //故本案改以「標籤與has皆可讀(has回true)、取值才拋錯」之Proxy、取值拋錯之存取器、自訂迭代器觸發; 遮罩之斷言(password=***、postgres://***@…)不變
+        it('execFun收尾與函數呼叫之catch(鍵取值拋錯、__sysInputArgs__取值拋錯、參數展開拋錯): 回遠端之msg與error事件已遮罩', async function() {
             this.timeout(60000)
             let { inst, errs } = mk({ kpFunExt: { who: () => 'x' } })
             let trap = () => {
                 throw new Error(`proxy trap password=${PWD} ${DBURL}`)
             }
+            let msg1 = 'execFun func[who] has an error: proxy trap password=*** postgres://***@db.example.com:5432/app'
+
+            //鍵取值(input.__sysToken__)拋錯: 標籤可讀(Symbol鍵回undefined)、has陷阱回true而通過鍵檢查, get陷阱對字串鍵拋錯
             let pm = genPm()
-            inst.emit('execute', 'who', new Proxy({}, { has: trap, get: trap }), pm)
+            inst.emit('execute', 'who', new Proxy({}, {
+                has: () => true,
+                get: (t, k) => (typeof k === 'symbol' ? undefined : trap()),
+            }), pm)
             let r1 = await pm
             assert.strict.equal(r1.state, 'error')
-            assert.strict.equal(r1.msg, 'execFun func[who] has an error: proxy trap password=*** postgres://***@db.example.com:5432/app')
+            assert.strict.equal(r1.msg, msg1)
             assert.strict.equal(errs.length, 1)
             assert.strict.deepEqual(leaks(errs), [], 'error事件之錯誤已遮罩')
+
+            //__sysInputArgs__取值拋錯(存取器): 鍵檢查通過(自有可列舉之存取器), 取出參數時拋錯
+            let input2 = { __sysToken__: 'tokReq-3333' }
+            Object.defineProperty(input2, '__sysInputArgs__', { get: trap, enumerable: true })
+            let pm2 = genPm()
+            inst.emit('execute', 'who', input2, pm2)
+            let r2 = await pm2
+            assert.strict.equal(r2.state, 'error')
+            assert.strict.equal(r2.msg, msg1)
+            assert.strict.equal(errs.length, 2)
+            assert.strict.deepEqual(leaks(errs), [], 'error事件之錯誤已遮罩')
+
+            //參數展開拋錯(自訂迭代器): 落入函數呼叫之catch(不發error事件)
             let arr = []
             arr[Symbol.iterator] = () => {
                 throw new Error(`iter boom password=${PWD}`)
             }
-            let r2 = await exec(inst, 'who', arr, 'tokReq-4444')
-            assert.strict.equal(r2.state, 'error')
-            assert.strict.equal(r2.msg, 'call func[who] has an error: iter boom password=***')
+            let r3 = await exec(inst, 'who', arr, 'tokReq-4444')
+            assert.strict.equal(r3.state, 'error')
+            assert.strict.equal(r3.msg, 'call func[who] has an error: iter boom password=***')
+            assert.strict.equal(errs.length, 2, '函數呼叫之catch不發error事件')
+        })
+
+        //不可讀之輸入(已撤銷之Proxy、陷阱拋錯之Proxy、Symbol.toStringTag取值拋錯之物件、has陷阱拋錯之Proxy): wsemi 1.9.69起判斷函數對其回false而不拋錯,
+        //修前(判斷函數拋錯)落入execFun收尾之catch(回遠端之msg為經遮罩之錯誤文字, 並發error事件); 修後於更前段被判為無效(func之isestr為false→invalid func, 鍵檢查之haskey為false→invalid token),
+        //回固定詞彙之拒絕值(不經遮罩, 不含陷阱錯誤之文字), 且不發error事件(同其他無效token之處置); 本案斷言此較早之拒絕路徑亦無洩漏(R20)
+        it('不可讀之輸入(不可讀之input、不可讀之func): 較早拒絕為固定詞彙invalid token／invalid func, 回遠端之msg與error事件皆不含陷阱訊息中之機密', async function() {
+            this.timeout(60000)
+            let { inst, errs } = mk({ kpFunExt: { who: () => 'x' } })
+            let secrets = [PWD, 'dbuser:', 'proxy trap']
+            for (let u of genUnreadables(`proxy trap password=${PWD} ${DBURL}`)) {
+                //input不可讀: 原案之Proxy(has、get皆拋錯)亦屬此類
+                let pm = genPm()
+                inst.emit('execute', 'who', u.value, pm)
+                let r = await pm
+                let note = `${u.name}: ${dump(r)}`
+                assert.strict.deepEqual(r, { state: 'error', msg: 'invalid token' }, note)
+                assert.strict.deepEqual(leaks(r, secrets), [], note)
+
+                //func不可讀(僅型別標籤不可讀者: 此時isestr為false; 標籤可讀者非字串之func亦為invalid func)
+                let pm2 = genPm()
+                inst.emit('execute', u.value, { __sysToken__: 'tokReq-5555', __sysInputArgs__: [] }, pm2)
+                let r2 = await pm2
+                assert.strict.deepEqual(r2, { state: 'error', msg: 'invalid func' }, note)
+                assert.strict.deepEqual(leaks(r2, secrets), [], note)
+            }
+            assert.strict.equal(errs.length, 0, '較早之拒絕不發error事件')
+            assert.strict.deepEqual(leaks(errs, secrets), [])
+
+            //原案之Proxy(has、get皆拋錯): 修前走execFun收尾之catch, 此處明確斷言其現走invalid token
+            let trap = () => {
+                throw new Error(`proxy trap password=${PWD} ${DBURL}`)
+            }
+            let pm3 = genPm()
+            inst.emit('execute', 'who', new Proxy({}, { has: trap, get: trap }), pm3)
+            assert.strict.deepEqual(await pm3, { state: 'error', msg: 'invalid token' })
         })
 
         it('建構失敗之catch(使用端genTag等拋錯含網址帳密): 拋出之錯誤已遮罩; 不含秘密者原樣(同一參照)', function() {

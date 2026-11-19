@@ -13,6 +13,7 @@ import WSyncWebdataClient from 'w-sync-webdata/src/WSyncWebdataClient.mjs'
 import WServBroadcastClient from 'w-serv-broadcast/src/WServBroadcastClient.mjs'
 import { bindFuncByPath, getFuncByPath } from './funcPath.mjs'
 import removeListeners from './removeListeners.mjs'
+import probeReadable from './probeReadable.mjs'
 import { checkOptLog, genDiag } from './genDiag.mjs'
 import genTokenBook from './genTokenBook.mjs'
 
@@ -259,7 +260,8 @@ function WServWebdataClient(instWConverClient, opt = {}) {
     //回調於自身內停止後才拋錯者, 停止後不再發出error事件, 改以診斷輸出(console.error): 使用端程式之錯誤不可無聲(同w-serv-broadcast停止後之監聽器拋錯)
     //診斷輸出預設只含回調函數名稱name與錯誤之類別與代碼, 錯誤原文可能夾帶資料值或token, 僅logDetail或funLog收得(見genDiag)
     let callHook = (name, fn, ...args) => {
-        if (isStopped || !isfun(fn)) {
+        //未給(null)者略過; 有給者建構時已驗為函數, 以isGiven而非isfun判斷: 建構後才不可讀(如已撤銷之Proxy)者於下方呼叫時拋錯而走emitError, 不被isfun之false靜默略過(R20)
+        if (isStopped || !isGiven(fn)) {
             return
         }
         try {
@@ -340,6 +342,13 @@ function WServWebdataClient(instWConverClient, opt = {}) {
             let fprog = () => {}
             let argLast = last(args) //若最後一個參數是函數, 因前端對後端無法使用回調函數, 故一定為監聽上下傳的進度函數
             // console.log('argLast', argLast)
+
+            //check, 末參數須可讀(以isfun判型所讀者探測: asFun), 不可讀者本地拒絕(reject固定訊息, 不帶值), 不呼叫getToken、不送出請求:
+            //wsemi 1.9.69起isfun對不可讀之值回false而不拋錯, 若不檢查, 不可讀之末參數會被當成一般資料參數送出(已撤銷之函數Proxy經JSON序列化成為null), 修前isfun拋錯而使呼叫reject, 維持之(R20)
+            if (probeReadable(argLast, { asFun: true }) !== '') {
+                throw new Error(`invalid args[${args.length - 1}]: must be a readable value`)
+            }
+
             if (isfun(argLast)) {
                 fprog = argLast
                 args = dropRight(args) //剔除最後的監聽上下傳的進度函數

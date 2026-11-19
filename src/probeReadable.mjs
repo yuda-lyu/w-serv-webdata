@@ -1,0 +1,70 @@
+import isFunction from 'lodash-es/isFunction.js'
+import getErrorMessage from 'wsemi/src/getErrorMessage.mjs'
+
+
+//isRef, 是否為參考型別(物件或函數)
+let isRef = (x) => {
+    return x !== null && (typeof x === 'object' || typeof x === 'function')
+}
+
+
+/**
+ * 探針: 檢驗值是否可被讀取(型別標籤、指定鍵之in判斷、可列舉鍵之走訪取得時不拋錯)
+ *
+ * why須有本探針(帳本R20): 呼叫端與使用端交出之值可為任意值, 含已撤銷之Proxy、拋錯之Symbol.toStringTag取值與拋錯之Proxy陷阱。
+ * wsemi自1.9.69起判斷函數(isobj、iseobj、isarr、isestr、isfun、isbol、haskey等)對此類值一律回false而不拋錯(判斷函數回布林),
+ * 而本套件原有數處防線借判斷函數之拋錯而成立(不可讀之輸入走失敗通道): 判定不再拋錯後, 不可讀之值被當成「無此鍵」「空物件」或「一般資料」續行, 防線失效。
+ * 故凡需「不可讀者走原失敗通道」之站點, 一律以本探針明確判定, 不倚賴判斷函數之拋錯與否
+ *
+ * 探針只觸碰型別標籤、指定鍵之in判斷、可列舉鍵之走訪與(選用)函數判型, 不呼叫值之任何方法, 不讀值之資料屬性與存取器
+ * 探針與其後之判斷函數各讀一次, 非原子: 對「第N次讀取才拋錯」之有狀態Proxy不保證(已知限制, 帳本R20)
+ *
+ * @param {*} v 輸入任意值
+ * @param {Object} [opt={}] 輸入設定物件, 預設{}
+ * @param {Boolean} [opt.asFun=false] 輸入是否另以lodash之isFunction判型(與wsemi之isfun同讀; 該判型於Symbol.toStringTag之in為true時另讀自有性並暫時改寫該鍵), 預設false
+ * @param {Array} [opt.hasKeys=[]] 輸入另以in運算子探測之鍵陣列(觸發Proxy之has陷阱; 與haskey之判斷同讀), 預設[]
+ * @param {Boolean} [opt.ownKeys=false] 輸入是否另走訪可列舉鍵(for...in加hasOwnProperty, 與iseobj之判斷同讀, 觸發ownKeys、getPrototypeOf、getOwnPropertyDescriptor陷阱), 預設false
+ * @returns {String} 回傳空字串代表可讀; 非空字串為不可讀之原因(取自拋出之例外, 取不到內容時為'unreadable value')
+ */
+function probeReadable(v, opt = {}) {
+    try {
+
+        //check, 原始值恆可讀
+        if (!isRef(v)) {
+            return ''
+        }
+
+        //touch, 型別標籤(wsemi判斷函數之共同底層所讀者): 會讀Symbol.toStringTag(含其getter與Proxy之get陷阱), 已撤銷之Proxy亦於此拋錯
+        Object.prototype.toString.call(v)
+
+        //asFun, 以lodash之isFunction判型(wsemi之isfun即其try包裝, 故此處讀取與之同: 對Symbol.toStringTag之in判斷、自有性、取值與暫時改寫之陷阱), 拋錯者即不可讀
+        if (opt.asFun === true) {
+            isFunction(v)
+        }
+
+        //hasKeys
+        if (Array.isArray(opt.hasKeys)) {
+            for (let k of opt.hasKeys) {
+                void (k in v)
+            }
+        }
+
+        //ownKeys, 走到第一個自有可列舉鍵即止(同iseobj)
+        if (opt.ownKeys === true) {
+            for (let k in v) {
+                if (Object.prototype.hasOwnProperty.call(v, k)) {
+                    break
+                }
+            }
+        }
+
+        return ''
+    }
+    catch (err) {
+        let cause = getErrorMessage(err)
+        return (typeof cause === 'string' && cause !== '') ? cause : 'unreadable value'
+    }
+}
+
+
+export default probeReadable

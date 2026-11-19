@@ -23,6 +23,7 @@
 | 生命週期(前端) | 停止呼叫{只 clearBroadcast、只 clearSync、兩者任意順序、重複} × 時機{首次輪詢成功前、openOnce 內、取函數清單在途、getServerMethods 內、取時間戳在途(成功／失敗)、select 在途(成功／失敗)、本套件請求於通訊物件內之階段(等待其 getToken、HTTP 在途、失敗後退避、於其 error 監聽器內重入、回應已到而續行未執行)、先於本套件註冊之使用端監聽(openOnce/broadcast/getData 等)內、停止後之推播、停止後使用端呼叫 updateTableTags 或 $fapi、停止後於同一通訊物件重建} × 輸出{本套件掛於通訊物件之監聽、各回調函數、本套件之 error、w-sync-webdata 之事件(含無 error 監聽者時之 console.error)、w-serv-broadcast 之事件、w-converhp 逐次 error 與重試訊息、停止後送出之本套件請求(含重試)、行程存活(停止至行程自然結束)、$fapi 之結算} | `src/WServWebdataClient.mjs` 之 isStopped、acSelf(R14);各下層之 clear 函數 |
 | 通訊物件之種類與本套件請求之身分(前端) | execute 支援 opt.signal(w-converhp ≥2.1.8)／不支援(w-converhp ≤2.1.7、w-converws、w-conversi 之 execute 只收 3 參數,第 4 參數被忽略);本套件請求之身分 `this === SELF`／使用端替換 getServerMethods 所給物件之函數(同步 select 不再被視為本套件之請求,R14 ⑧) | 各通訊物件 `src/*Client.mjs` 之 execute 簽名;`src/WServWebdataClient.mjs` 之 `SELF` |
 | find 輸入形狀(資料通道 select/delAll,R15) | 方法{select、delAll、其餘}×參數位置{`__sysInputArgs__` 之型別、args[0]=find、args[1..]多餘參數、授權函數所見之 input、operOrm 所收之 input}×形狀群{W 白名單內、N 非條件物件(null/陣列/字串/數字/布林/二進位)、O 頂層運算子鍵($where/$expr/$or…)、F 欄位層運算子($regex/$gt/$nin…)、V 值與鍵形狀及規模(`length`、Object.prototype 成員名、自有 `__proto__`、點號、超長字串、NUL、`$in` 邊界、重複混型)、P 協定與位置}×JSON 往返後可到達之型別(undefined/函數/Symbol 之鍵消失、Date→字串、NaN→null、二進位標記還原、自有 `__proto__` 鍵)×ORM 後端{lmdb、level、lowdb、mongodb、reladb、postgresql、mdb} | run02 審查之 87 案×5 後端實跑(`tmp/vin02/cases.mjs`、`tmp/vin02/out/`,暫存不入版控);下游實際用法:`git grep` w-web-perm/api/task 之資料通道設定(皆 `methodsExec:['select']`、授權函數不讀 input、客戶端只送無參數 `select()`) |
+| 不可讀之值(R20) | 值{已撤銷之 Proxy〔物件、函數、陣列〕、全陷阱拋錯之 Proxy、`Symbol.toStringTag` 取值拋錯之物件、`has` 陷阱拋錯之 Proxy〔物件、函數〕、可列舉鍵走訪拋錯之 Proxy〔ownKeys、getPrototypeOf、getOwnPropertyDescriptor〕}×站點{execute 之 func 與 input、getUserIdByToken 與 getToken 之回傳、輪詢關卡之輸入與 token、kpOrm、`$fapi` 之末參數、各設定鍵與元素、通訊物件}×去向{拒絕、拋固定訊息、最低權限之預設、不適用} | `test/tools/unreadable.mjs`;`git grep -nE "\b(isobj\|iseobj\|isarr\|isestr\|isfun\|isbol\|cstr\|haskey)\(" -- src` |
 | 其他 | 並發、前端參數個數、input 參照、error 事件 | — |
 
 ## 1. 規則
@@ -275,6 +276,42 @@
 - 盤點指令:`git grep -n "sleep(\|setTimeout(" -- test`(測試內剩餘之等待,逐一歸類:測試替身之延遲、否定觀察窗、時間即規格);`git grep -n "onTrace" -- src`(src 應只有兩處轉交與 JSDoc).
 - 測試:見上;變異與負載試驗見 `C:\opensrcOper\dnow\20261029050859\agent-out\tm-servwebdata-修正報告.md`.
 
+### R20 不可讀之值與判斷函數之連動(wsemi 1.9.69 起判斷函數對不可讀之值回 false 而不拋錯)
+
+- 依據:wsemi 1.9.69(排程第 492 項第 8 批,wsemi 帳本 `sgud/rule/rulebook_judge_nothrow.md` R-JUDGE-NOTHROW-01:`is*` 對任何輸入不拋錯,型別無法判定回 `false`;`haskey` 之 `in` 判斷拋錯回 `false`;`iseobj` 之可列舉鍵走訪拋錯回 `false`;`cstr` 對函數類之已撤銷或全陷阱拋錯之 Proxy 回 `''`,其餘不可讀者仍拋)與 dspec〈輸入參數之檢測機制〉§5.3 C2;來由為連動之跟跑(`unit-diagmask` 之 Proxy 案轉紅,2026-11-19 swd492i).「不可讀之值」指已撤銷之 Proxy、陷阱拋錯之 Proxy、`Symbol.toStringTag` 取值即拋錯之物件.
+- 規則:
+  - ①本套件**不倚賴判斷函數之拋錯與否成立防線**:凡「不可讀之值須走失敗通道(拒絕或拋錯)」者,於站點以 `src/probeReadable.mjs`(單一擁有者,不另寫等價實作)明確判定——只觸碰型別標籤、指定鍵之 `in`(`opt.hasKeys`)、可列舉鍵之走訪(`opt.ownKeys`),不呼叫值之方法、不讀資料屬性與存取器;不可讀者依該站點**原失敗通道**回固定訊息(不帶值).
+  - ②其餘站點判斷函數之 `false` 本即走既定之失敗(拋 `invalid opt.*` 等固定訊息)或預設(非字串→空字串、非布林→false、非函數之 `onTrace`→不轉交)通道,不另加探針,逐站點見下表(判準:修後之去向是否仍是**最低權限或拒絕**).
+  - ③不可讀之 `execute` 輸入(`func` 或 `input`)於鍵檢查即被判無效,回固定詞彙 `invalid func`／`invalid token`(不遮罩、不含陷阱訊息、不發 error 事件,同其他無效 token),屬較早之拒絕;execFun 收尾之 catch 與函數呼叫之 catch 仍可由其他輸入觸發(鍵取值拋錯之 Proxy、`__sysInputArgs__` 取值拋錯之存取器、參數展開拋錯之迭代器),其遮罩斷言(`password=***`、`postgres://***@…`)不變(`unit-diagmask`).
+  - ④探針與 w-converhp 之 `probeReadable` 之別:該檔深探序列化會走到之全部物件;本檔只淺探,因本套件之判定點只讀型別標籤、指定鍵、可列舉鍵與函數判型.wsemi `isfun` 即 lodash `isFunction` 之 try 包裝,其讀取不只型別標籤:`Symbol.toStringTag` 之 `in` 為 true 時另讀自有性(`getOwnPropertyDescriptor` 陷阱)並暫時改寫該鍵(`set`、`deleteProperty` 陷阱),故前端末參數之探針用 `asFun: true`(直接呼叫同一個 `isFunction`,不另仿其讀取集合;複審以 `has` 回 true 且 `getOwnPropertyDescriptor` 或 `deleteProperty` 拋錯之 Proxy 實證只探 `Symbol.toStringTag` 之 `in` 不足);標籤可讀而僅可列舉鍵走訪拋錯者(`ownKeys` 等陷阱)`isfun` 修前亦不拋,不在該站點之範圍.
+  - ⑤探針之讀取條件須與其所守護之判斷函數相同:`kpOrm` 之可列舉鍵走訪只在有同步表名時才做(`checkSyncOpt` 於無同步表名時不讀 kpOrm,修前不拋),不對未使用之 kpOrm 多拋錯;`callHook` 以 `isGiven` 而非 `isfun` 判未給(建構時已驗為函數,建構後才不可讀者經呼叫拋錯走 `emitError`,不被 `isfun` 之 false 靜默略過).
+- 站點全集(2026-11-19,`git grep -nE "\b(isobj|iseobj|isarr|isestr|isfun|isbol|cstr|haskey)\(" -- src` 共 60 行,下表逐站點歸類;行號為 swd492i 後):
+
+| # | 站點(檔:行) | 判定之值(來源) | 修前(1.9.68) | 修後之去向 | 處置 | 測試(`unit-unreadable` 除註明) |
+|---|---|---|---|---|---|---|
+| 1 | Exec:345 `isestr(func)` | func(遠端) | 拋→execFun 收尾 catch(遮罩之 msg＋error 事件) | `invalid func`(固定詞彙) | 刻意不套(較早之拒絕,無洩漏) | `unit-diagmask`〈不可讀之輸入〉 |
+| 2 | Exec:363 `haskey(input,'__sysToken__')`、:371 同鍵之第二檢 | input(遠端) | 拋→同上 | `invalid token`／(:371 於 :363 通過後同一值,無獨立觸發) | 刻意不套(同上) | `unit-diagmask`〈不可讀之輸入〉 |
+| 3 | Exec:367 `cstr(input.__sysToken__)`、genPollingGate:56 | token(遠端) | 拋 | 函數類 Proxy→`''`(空 token,同一般函數);其餘仍拋(Exec→execFun catch;關卡→reject) | 刻意不套(空 token 為既有語意,身分由 getUserIdByToken 決定) | 〈__sysToken__為標籤不可讀之值〉(關卡) |
+| 4 | Exec:399、genPollingGate:67 `isestr(userId)` | getUserIdByToken 之回傳(使用端回調) | 拋→execFun catch／關卡 reject | `''`(無身分,同其他非字串;JSDoc 第 11 點);`await` 時讀 `then` 即拋者(已撤銷、get 陷阱拋錯)於 await 處即走拒絕通道,與 wsemi 無關 | 刻意不套(最低權限:表操作之 authorizeExec 收空字串,非公開系統函數 `permission denied`) | 〈getUserIdByToken回傳不可讀之值〉 |
+| 5 | Exec:294 `isobj(r)`(maskResult) | r 為 `pm2resolve` 自造之 `{state,msg}` | — | 恆可讀;msg 之不可讀由 `diag.mask`(永不拋)處理 | 不適用 | — |
+| 6 | Exec:98/101、117、160、174(`isfun`)、126/130、145/149(`isarr`/`isestr`)、167/170(`isobj`)、188(`isarr`)、268(`iseobj`);Server:41/44、50/53、110/114;Sync:40、52、78;Client:193、196、199、205、230、236、244、532、544 | 設定與使用端提供之函數、容器、元件 | 拋原生錯誤 | 拋固定訊息之 `invalid opt.*` 等(有給卻無效,不靜默改用預設:`methodsExec`、`sysFuncsPublic` 之預設較寬) | 已套(失敗通道仍為拋錯或 reject,訊息不帶值) | 〈設定站點之失敗通道不變〉(伺服端、前端) |
+| 7 | Exec:109、Server:61 `isbol(useDbOrm)` | useDbOrm | 拋 | false→預設 `false`(資料通道關閉;同其他非布林,R3;另給資料通道設定時拋 `invalid opt.useDbOrm when opt.<鍵> is given`) | 刻意不套(最低權限) | 〈useDbOrm為不可讀之值〉 |
+| 8 | Server:510 `iseobj(instWConverServer)` | 通訊物件(使用端) | 拋 | 固定文字提示後改建 evem(既有行為:非有效物件,R2);`in` 判斷拋錯者通過此檢查而於 :515 拋 `not an EventEmitter` | 刻意不套(R2) | 〈instWConverServer為不可讀之值〉 |
+| 9 | Server:104 `isobj(kpOrm)`,Sync:29 `iseobj(kpOrm)` | kpOrm(使用端) | 拋 | 標籤不可讀者仍於 :105 拋;**走訪可列舉鍵即拋者(`ownKeys`、`getPrototypeOf`、`getOwnPropertyDescriptor` 陷阱)isobj 為 true、iseobj 為 false→當成空物件靜默不同步(有給卻無效之設定被吞)**;無同步表名時 Sync:23 先回 false,不讀 kpOrm(修前不拋,不變) | **失效→已修**:有同步表名時 `probeReadable(kpOrm, { ownKeys: true })`(:139,置於 parseExecOpt 之後、checkSyncOpt 之前,錯誤先後同修前),不可讀者拋 `invalid opt.kpOrm when useDbOrm=true`(原失敗通道:建構時拋錯);無同步表名者不探、不拋 | 〈kpOrm〉4 條 |
+| 10 | genPollingGate:55 `haskey(input,'__sysToken__')` | 關卡輸入(w-serv-broadcast 交入之深複製快照) | 拋→關卡 reject | **false→當成未帶鍵之舊前端,公開(預設)時以空身分放行並綁定 clientId→`''`** | **失效→已修**:`probeReadable(input, { hasKeys: ['__sysToken__'] })`(:51),不可讀者 reject `invalid input: must be a readable object`,不反查、不綁定(原失敗通道:reject) | 〈輪詢身分關卡〉3 條 |
+| 11 | Client:352 `isfun(argLast)` | `$fapi` 呼叫之末參數(使用端) | 拋→呼叫 reject | **false→當成一般資料參數,取得 token 後送出(已撤銷之函數 Proxy 經 JSON 成為 `null`)** | **失效→已修**:`probeReadable(argLast, { asFun: true })`(:348),不可讀者 reject `invalid args[<i>]: must be a readable value`,不呼叫 getToken、不送請求(原失敗通道:呼叫之 reject) | 〈前端$fapi〉4 條 |
+| 12 | Client:382 `isestr(token)` | getToken 之回傳(使用端) | 拋→呼叫 reject | `''`(空 token,同其他非字串;JSDoc 註「避免傳輸時欄位消失」),伺服端為權威 | 刻意不套 | 〈getToken回傳不可讀之值〉 |
+| 13 | Client:299、Server:541 `isfun(onTrace)` | onTrace(使用端) | 拋 | 非函數→不轉交(R19 ①,既有設計) | 刻意不套 | — |
+| 14 | Client:264 `callHook` 之 `fn`(原 `!isfun(fn)`) | 使用端回調(建構時已驗為函數;建構後才撤銷者) | 拋(於 callHook 之 try 外,自事件派發處拋出) | **false→靜默略過(使用端不再收到資料或通知,亦無任何錯誤)** | **失效→已修**:改以 `!isGiven(fn)` 判未給,有給者呼叫時拋錯經 try 走 `emitError`(複審發現) | 〈建構後才不可讀之回調〉 |
+| 14b | Exec:277、286、314;Sync:63 | WServWebdataServer 交入之內部選項 | — | 無不可讀之來源 | 不適用 | — |
+| 15 | Client:208、Server:44/53、Exec:101、170 等「未給時之預設」分支 | 已於 #6 先拋錯者之餘 | — | 只在未給時到達 | 不適用 | — |
+| 16 | Client:362 `ispm(token)` | getToken 之回傳 | 不拋(wsemi 自帶 try) | 同修前 | 不適用 | — |
+| 17 | pickTables:11 `isestr(value)`;removeListeners:14/17 `isfun` | 本套件自有之時間戳簿;掛於外部事件物件之監聽移除(try 內吞錯) | — | 結果相同(濾除／略過) | 不適用 | — |
+
+- 盤點指令:`git grep -nE "\b(isobj|iseobj|isarr|isestr|isfun|isbol|cstr|haskey)\(" -- src`(逐行對上表);`git grep -n "probeReadable" -- src`(探針之使用站點:Server 1、genPollingGate 1、Client 1,各帶註解指向 R20).wsemi 升版時以 `test/tools/unreadable.mjs` 之 11 種值重跑 `unit-unreadable`(含「基準設定可建構」對照案與設定站點矩陣),轉紅者即行為改變之站點.
+- 測試:`test/unit-unreadable.test.mjs`(25 條,同檔內含探針單元 3、資料通道 1、輪詢關卡 3、kpOrm 4、前端 4、設定站點伺服端 6／前端 4)、`test/unit-diagmask.test.mjs`(改寫 1 條〔execFun 收尾與函數呼叫之 catch,改以仍可觸發之輸入〕、新增 1 條〔不可讀之輸入走 invalid token／invalid func 且無洩漏〕);敵意值集 `test/tools/unreadable.mjs`(11 種:標籤不可讀 6、`has` 陷阱拋錯 2、可列舉鍵走訪拋錯 3).
+- 已知限制:①探針只讀型別標籤、指定鍵之 `in`、可列舉鍵之走訪與函數判型,不展開值之內容(巢狀值之不可讀由下游序列化器負責);探針與其後之判斷函數各讀一次,非原子——對「第 N 次讀取才拋錯」之有狀態 Proxy 不保證(複審以第 2 次起拋錯之 `ownKeys`／`has` 陷阱實證:kpOrm 靜默不同步、關卡把帶 `__sysToken__` 之輸入當成舊前端以空身分放行〔降為匿名,非升權〕;輪詢關卡之輸入為 w-serv-broadcast 交入之深複製快照,遠端不可能構造,kpOrm 與末參數為使用端自身之值,取捨同 L24 ⑦ 之敵意構造);②`unit-unreadable` 之敵意值為本套件自有一份,不取用 wsemi 之 `test/tools/hostileValues.mjs`(屬其測試輔助,不在對外介面);③已撤銷之 Proxy 無從於 `execute` 輸入中真實出現(通訊層以 JSON 解析),本規則為防禦縱深.
+
 ## 2. 測試對照
 
 | 測試檔 | 區塊 | 條數 | 對應規則 |
@@ -304,6 +341,8 @@
 | `test/unit-diaglog.test.mjs` | 選項檢查／預設摘要／funLog／logDetail／契約不變／伺服端固定文字／genTokenBook／盤點(接線測試;形態類案改由共用語料,見 unit-diagcorpus) | 見 state | R18(預設不含個資、funLog 收完整細節、logDetail 還原、token 遮罩為 `***`、回傳與事件契約、src 不直接呼叫 console、diag 站點全集) |
 | `test/unit-diagmask.test.mjs` | 對外錯誤值之站點接線:前端(通訊層拒絕、伺服端回覆、回調拋錯、getToken 拋錯、select 被使用端替換、固定詞彙原樣、X54)、伺服端(X62 遠端 msg、Error 副本、execFun 收尾與呼叫 catch、建構失敗 catch、輪詢、成功資料不遮、固定詞彙原樣、X54、Exec 直接建構) | 16 | R18(③站點表 #1、3、5、6、9、13～23) |
 | `test/unit-diagcorpus.test.mjs` | wsemi 共用語料 `_diagCases` 之適用子集(T01、T07、K01、K09、V02、E01、E07、P01、S07、C01、R01、R04×2、O15) | 14 | R18(形態類案;不適用案與理由見檔頭) |
+| `test/unit-unreadable.test.mjs` | 不可讀之值(R20):探針單元、getUserIdByToken 回傳、輪詢關卡、kpOrm、前端 `$fapi` 末參數與 token、建構後才不可讀之回調、設定站點之失敗通道(伺服端、前端) | 25 | R20(站點表 #3、4、6～13;敵意值集 `test/tools/unreadable.mjs`) |
+| `test/unit-diagmask.test.mjs`〈R20 連動〉 | 改寫 1(execFun 收尾與函數呼叫之 catch 改以鍵取值拋錯、`__sysInputArgs__` 取值拋錯、參數展開拋錯觸發)、新增 1(不可讀之 input／func 走 `invalid token`／`invalid func`,回遠端之 msg 與 error 事件無洩漏) | 2 | R20 規則③、站點表 #1、2、R18 #15、20、21 |
 | `test/api-diaglog.test.mjs` | (真 HTTP,埠 9008~9011;連線全程擷取本行程 console) | 4 | R18(預設／funLog／logDetail 三組;同步與 `$fapi` 結果不變;X62 遠端 msg 不含密碼與 token) |
 | `test/api-sysFuncs.test.mjs` | (真 HTTP,埠 9003~9007,見 R11 埠表) | 14 | R16、R17(輪詢實際帶 token;嚴格設定下持標頭 token 之匿名者、他人身分與舊前端元件被拒;sso 型三者/預設可綁定、嚴格設定不綁定;perm 型預設下新、舊前端元件皆可綁定同步) |
 
@@ -405,6 +444,12 @@
   - B5 對外錯誤值遮罩(error 事件、前端 reject、伺服端回遠端之 `{ state:'error', msg }`、輪詢 verifyPolling 之拒絕值):含憑證或 token 者改為遮罩副本(Error 保留類別與 code),不含者原樣;固定詞彙拒絕值不遮.**回遠端之 msg 在修前原樣含後端 reject 值(高嚴重度,X62)**.
   - B6 `src/getDiag.mjs` 刪除(`getOptLog` 型別檢核改為 `genDiag.mjs` 之 `checkOptLog`,行為同;`genTokenBook` 移至 `src/genTokenBook.mjs`);相依 wsemi ^1.9.31.
   - 使用端須配合:比對 `[token]` 字樣者改 `***`;w-serv-hapi 兩檔 JSDoc 字樣與 `unit-optDoc`.
+
+- 2026-11-19(swd492i,連動 wsemi 1.9.69 第 8 批:判斷函數對不可讀之值回 `false` 而不拋錯;**僅影響傳入已撤銷之 Proxy、陷阱拋錯之 Proxy、`Symbol.toStringTag` 取值拋錯之物件者,一般用法不受影響**,R20):
+  - B1 `execute` 之不可讀 input／func 回固定詞彙 `invalid token`／`invalid func`,不再落入 execFun 收尾之 catch(原回經遮罩之 `execFun func[…] has an error: …` 並發 error 事件);其他輸入仍可觸發該 catch(鍵取值拋錯、`__sysInputArgs__` 取值拋錯)與函數呼叫之 catch,遮罩不變.
+  - B2 設定站點拋出之錯誤由 wsemi 判斷函數之原生錯誤改為固定訊息之 `invalid opt.*`(有給卻無效仍拋錯,不靜默改用預設).
+  - B3 新拒絕:輪詢關卡之不可讀輸入 reject `invalid input: must be a readable object`(不反查、不綁定);`kpOrm` 走訪可列舉鍵即拋者建構時拋 `invalid opt.kpOrm when useDbOrm=true`;`$fapi` 之末參數不可讀者 reject `invalid args[<i>]: must be a readable value`(不呼叫 getToken、不送請求).三者於修前亦為拒絕(原拋原生錯誤),此為維持而非新增限制.另:前端回調於建構後才不可讀(已撤銷之函數 Proxy)者,原於 `callHook` 拋錯(自事件派發處),現呼叫時拋錯並發 error 事件.
+  - 使用端須配合:無.
 
 ## 6. 對標摘要
 
