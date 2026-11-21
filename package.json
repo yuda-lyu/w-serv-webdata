@@ -1,14 +1,14 @@
 {
   "name": "w-serv-webdata",
-  "version": "1.1.50",
+  "version": "1.1.51",
   "main": "dist/w-serv-webdata-server.umd.js",
   "dependencies": {
-    "w-serv-broadcast": "^1.1.42",
+    "w-serv-broadcast": "^1.1.43",
     "w-sync-webdata": "^1.1.39",
     "wsemi": "^1.9.71"
   },
   "devDependencies": {
-    "w-converhp": "^2.1.40",
+    "w-converhp": "^2.1.41",
     "w-orm-lowdb": "^1.0.74",
     "w-package-tools": "^1.1.29"
   },
